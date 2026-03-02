@@ -49,10 +49,16 @@ app.post('/api/analyze', async (req, res) => {
     const input = { wentWell, wasHard, visibleWin, recognizeWho, outcome }
 
     const system = `
-You are a coaching assistant for an internal L&D leader at a large organization.
-Your job: detect concrete wins, capture evidence, and suggest simple celebration actions.
-Be practical, concise, and human. Do NOT invent facts. Use only the user's input.
-Return ONLY valid JSON that matches the schema requested — no markdown, no explanation.
+You are a coaching assistant for a workplace trainer (L&D professional).
+The trainer is writing about their week. Your job is to identify wins belonging to the PEOPLE THE TRAINER WORKS WITH — their learners, team members, or participants.
+
+Critical rules:
+- ONLY extract wins for people the trainer MENTIONS (learners, team members, participants, colleagues).
+- NEVER extract a win for the trainer themselves. The trainer is the observer, not the subject.
+- If something positive happened for the trainer personally (e.g. "I finally got my admin done"), ignore it — it is not a win to celebrate here.
+- Do NOT invent facts. Use only what is in the input.
+- Be practical, concise, and human.
+Return ONLY valid JSON that matches the schema — no markdown, no explanation.
 `.trim()
 
     const user = `
@@ -60,13 +66,15 @@ Weekly check-in input (JSON):
 ${JSON.stringify(input, null, 2)}
 
 TASK:
-1) Write a 1-2 sentence summary.
-2) Extract 1 to 3 wins. Each win must have:
+1) Write a 1-2 sentence summary focused on the people the trainer works with.
+2) Extract 1 to 3 wins belonging to the trainer's learners or team members. Each win must have:
 - id (short string, no spaces)
-- title (max 10 words)
-- story (1-2 sentences)
-- evidence (1 sentence, based on input)
-- celebrationIdeas (array of 2-4 strings; specific celebration actions)
+- title (max 10 words, describing the learner/team member's win)
+- story (1-2 sentences about what that person or group achieved)
+- evidence (1 sentence of evidence from the input)
+- celebrationIdeas (array of 2-4 strings; specific actions to celebrate that person or group)
+
+If no wins for other people are mentioned, return an empty wins array.
 
 Return JSON in this exact shape:
 {"summary":"...","wins":[{"id":"...","title":"...","story":"...","evidence":"...","celebrationIdeas":["...","..."]}]}
@@ -157,9 +165,15 @@ app.post('/api/analyze-journal', async (req, res) => {
     const entryLabel = type === 'weekly' ? 'weekly recap' : 'daily journal entry'
 
     const system = `
-You are a coaching assistant for an internal L&D leader at a large organization.
-Your job: read a ${entryLabel} and surface concrete wins, evidence, and celebration ideas.
-Be practical, concise, and human. Do NOT invent facts — use only what is in the entry.
+You are a coaching assistant for a workplace trainer (L&D professional).
+The trainer has written a ${entryLabel}. Your job is to surface wins belonging to the PEOPLE THE TRAINER WORKS WITH — their learners, team members, or participants.
+
+Critical rules:
+- ONLY extract wins for people the trainer MENTIONS (learners, team members, participants, colleagues by name or as a group).
+- NEVER extract a win for the trainer themselves. The trainer is the observer and facilitator, not the subject.
+- If the trainer mentions something positive about their own work or day (e.g. "I finally got my lesson plan finished"), ignore it — it is not a win to track here.
+- Do NOT invent facts — use only what is in the entry.
+- Be practical, concise, and human.
 Return ONLY valid JSON that matches the schema — no markdown, no explanation.
 `.trim()
 
@@ -170,13 +184,15 @@ ${text}
 """
 
 TASK:
-1) Write a 1-2 sentence summary of the entry.
-2) Extract 1 to 3 wins. Each win must have:
+1) Write a 1-2 sentence summary focused on the people the trainer works with and what they achieved.
+2) Extract 1 to 3 wins belonging to the trainer's learners or team members. Each win must have:
 - id (short string, no spaces)
-- title (max 10 words)
-- story (1-2 sentences)
-- evidence (1 sentence based on the entry)
-- celebrationIdeas (array of 2-4 strings; specific, actionable celebration ideas)
+- title (max 10 words, describing what the learner or group achieved)
+- story (1-2 sentences about what that person or group did)
+- evidence (1 sentence of evidence drawn from the entry)
+- celebrationIdeas (array of 2-4 strings; specific, actionable ways to celebrate that person or group)
+
+If no wins for other people are described, return an empty wins array.
 
 Return JSON in this exact shape:
 {"summary":"...","wins":[{"id":"...","title":"...","story":"...","evidence":"...","celebrationIdeas":["...","..."]}]}
