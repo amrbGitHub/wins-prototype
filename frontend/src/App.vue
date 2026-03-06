@@ -1,13 +1,26 @@
 <script setup>
 import { ref } from 'vue'
+import { useAuth } from './composables/useAuth.js'
 import Celebrate from './components/Celebrate.vue'
-import Journal from './components/Journal.vue'
+import Journal   from './components/Journal.vue'
+import AuthPage  from './components/AuthPage.vue'
 
+const { user, loading, signOut } = useAuth()
 const currentView = ref('celebrate')
 </script>
 
 <template>
+  <!-- Hydrating session from storage — prevents flash of login page for logged-in users -->
+  <div v-if="loading" class="min-h-screen flex items-center justify-center bg-white">
+    <span class="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-slate-600"></span>
+  </div>
+
+  <!-- Not authenticated -->
+  <AuthPage v-else-if="!user" />
+
+  <!-- Authenticated -->
   <div
+    v-else
     class="min-h-screen text-slate-900
            bg-[radial-gradient(90%_70%_at_15%_0%,rgba(251,191,36,0.20),transparent_55%),radial-gradient(80%_60%_at_85%_0%,rgba(244,63,94,0.16),transparent_60%),linear-gradient(to_bottom,#fff,#fff)]"
   >
@@ -40,6 +53,18 @@ const currentView = ref('celebrate')
             :class="currentView === 'journal' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
           >
             Journal
+          </button>
+        </div>
+
+        <!-- User info + sign out -->
+        <div class="flex items-center gap-2">
+          <span class="hidden sm:block text-xs text-slate-500 truncate max-w-[180px]">{{ user.email }}</span>
+          <button
+            @click="signOut"
+            class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium
+                   text-slate-600 hover:bg-slate-50 transition shadow-sm"
+          >
+            Sign out
           </button>
         </div>
       </div>

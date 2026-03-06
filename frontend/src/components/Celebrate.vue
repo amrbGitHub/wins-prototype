@@ -1,15 +1,29 @@
 <script setup>
 import { ref, computed, onMounted, reactive } from 'vue'
+import { useAuth } from '../composables/useAuth.js'
 
-const STORAGE_KEY = 'wins-journal'
+const { getAccessToken } = useAuth()
 
 // ── Data ────────────────────────────────────────────────────────────
 const entries = ref([])
 
-function loadEntries() {
+async function apiFetch(path, options = {}) {
+  const token = getAccessToken()
+  const res = await fetch(path, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      ...options.headers,
+    },
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+async function loadEntries() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    entries.value = raw ? JSON.parse(raw) : []
+    entries.value = await apiFetch('/api/entries')
   } catch {
     entries.value = []
   }

@@ -1,9 +1,10 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useSpeech } from '../composables/useSpeech.js'
+import { useAuth } from '../composables/useAuth.js'
 import MicButton from './MicButton.vue'
 
-const STORAGE_KEY = 'wins-journal'
+const { getAccessToken } = useAuth()
 
 // --- Speech ---
 const { isSupported: speechSupported, isListening, toggleListening } = useSpeech()
@@ -23,17 +24,28 @@ function today() {
   return new Date().toISOString().slice(0, 10)
 }
 
-function loadEntries() {
+// Authenticated fetch helper — attaches Bearer token automatically
+async function apiFetch(path, options = {}) {
+  const token = getAccessToken()
+  const res = await fetch(path, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      ...options.headers,
+    },
+  })
+  if (!res.ok) throw new Error(await res.text())
+  if (res.status === 204) return null
+  return res.json()
+}
+
+async function loadEntries() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    entries.value = raw ? JSON.parse(raw) : []
+    entries.value = await apiFetch('/api/entries')
   } catch {
     entries.value = []
   }
-}
-
-function saveEntries() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.value))
 }
 
 onMounted(loadEntries)
@@ -54,25 +66,31 @@ async function saveAndAnalyze() {
   errorMsg.value = ''
   loading.value = true
 
-  const newEntry = {
-    id: crypto.randomUUID(),
-    date: entryDate.value,
-    type: entryType.value,
-    text: entryText.value.trim(),
-    analysis: null,
-    createdAt: Date.now(),
+  let newEntry
+  try {
+    // Phase 1: create the entry in Supabase (analysis = null), show immediately
+    newEntry = await apiFetch('/api/entries', {
+      method: 'POST',
+      body: JSON.stringify({
+        date: entryDate.value,
+        type: entryType.value,
+        text: entryText.value.trim(),
+      }),
+    })
+    entries.value.unshift(newEntry)
+
+    // Reset form
+    entryText.value = ''
+    entryDate.value = today()
+    entryType.value = 'daily'
+  } catch (e) {
+    errorMsg.value = e?.message ?? String(e)
+    loading.value = false
+    return
   }
 
-  // Optimistically add the entry so it appears immediately
-  entries.value.unshift(newEntry)
-  saveEntries()
-
-  // Reset form
-  entryText.value = ''
-  entryDate.value = today()
-  entryType.value = 'daily'
-
   try {
+    // Phase 2: run AI analysis (existing endpoint, no auth needed)
     const res = await fetch('/api/analyze-journal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -81,30 +99,38 @@ async function saveAndAnalyze() {
     if (!res.ok) throw new Error(await res.text())
     const analysis = await res.json()
 
-    // Update the entry in place
+    // Phase 3: persist analysis to Supabase
+    const updated = await apiFetch(`/api/entries/${newEntry.id}/analysis`, {
+      method: 'PATCH',
+      body: JSON.stringify({ analysis }),
+    })
     const idx = entries.value.findIndex(e => e.id === newEntry.id)
-    if (idx !== -1) {
-      entries.value[idx] = { ...entries.value[idx], analysis }
-      saveEntries()
-    }
+    if (idx !== -1) entries.value[idx] = updated
   } catch (e) {
     errorMsg.value = e?.message ?? String(e)
-    // Mark entry as failed
-    const idx = entries.value.findIndex(e => e.id === newEntry.id)
-    if (idx !== -1) {
-      entries.value[idx] = { ...entries.value[idx], analysisFailed: true }
-      saveEntries()
-    }
+    // Persist failure flag
+    try {
+      const updated = await apiFetch(`/api/entries/${newEntry.id}/analysis`, {
+        method: 'PATCH',
+        body: JSON.stringify({ analysisFailed: true }),
+      })
+      const idx = entries.value.findIndex(e => e.id === newEntry.id)
+      if (idx !== -1) entries.value[idx] = updated
+    } catch { /* best effort */ }
   } finally {
     loading.value = false
   }
 }
 
 // --- Delete entry ---
-function deleteEntry(id) {
+async function deleteEntry(id) {
   if (!confirm('Delete this journal entry?')) return
-  entries.value = entries.value.filter(e => e.id !== id)
-  saveEntries()
+  try {
+    await apiFetch(`/api/entries/${id}`, { method: 'DELETE' })
+    entries.value = entries.value.filter(e => e.id !== id)
+  } catch (e) {
+    alert('Failed to delete: ' + e.message)
+  }
 }
 
 // --- Expand/collapse win details ---
