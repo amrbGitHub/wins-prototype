@@ -90,7 +90,7 @@ async function saveAndAnalyze() {
   }
 
   try {
-    // Phase 2: run AI analysis (existing endpoint, no auth needed)
+    // Phase 2: run AI analysis (existing endpoint)
     const res = await fetch('/api/analyze-journal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -151,8 +151,8 @@ function formatDate(dateStr) {
 }
 
 const typePillClass = {
-  daily: 'border-sky-200 bg-sky-50 text-sky-800',
-  weekly: 'border-violet-200 bg-violet-50 text-violet-800',
+  daily:  'border-teal-200 bg-teal-50 text-teal-800',
+  weekly: 'border-amber-200 bg-amber-50 text-amber-800',
 }
 </script>
 
@@ -160,44 +160,54 @@ const typePillClass = {
   <div class="mx-auto max-w-6xl px-4 py-6 space-y-6">
 
     <!-- New entry form -->
-    <div class="rounded-3xl border border-slate-200 bg-white shadow-sm">
-      <div class="border-b border-slate-100 px-5 py-4">
-        <h2 class="text-base font-semibold">New journal entry</h2>
-        <p class="mt-1 text-sm text-slate-500">
-          Jot down what happened — I'll pull out the wins automatically.
-        </p>
+    <div class="relative overflow-hidden rounded-3xl border border-slate-200/60 bg-white shadow-lg shadow-slate-200/30">
+      <!-- Gradient background -->
+      <div class="absolute inset-0 bg-gradient-to-br from-white via-slate-50/30 to-teal-50/10"></div>
+      
+      <div class="relative border-b border-slate-100/60 px-6 py-5">
+        <div class="flex items-center gap-3">
+          <div class="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-[#0d5f6b] to-[#0a4a54] shadow-lg shadow-[#0d5f6b]/20">
+            <svg class="h-5 w-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+            </svg>
+          </div>
+          <div>
+            <h2 class="text-lg font-bold text-slate-800">New journal entry</h2>
+            <p class="text-sm text-slate-500">Jot down what happened — I'll pull out the wins automatically.</p>
+          </div>
+        </div>
       </div>
 
-      <div class="space-y-4 px-5 py-5">
+      <div class="relative space-y-5 px-6 py-6">
         <!-- Date + type row -->
-        <div class="flex flex-wrap items-center gap-3">
+        <div class="flex flex-wrap items-end gap-4">
           <div>
-            <label class="text-xs font-semibold uppercase tracking-wide text-slate-500">Date</label>
+            <label class="text-xs font-bold uppercase tracking-wider text-slate-400">Date</label>
             <input
               v-model="entryDate"
               type="date"
-              class="mt-1 block rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm
-                     focus:border-rose-300 focus:ring-4 focus:ring-rose-100 focus:outline-none"
+              class="mt-2 block rounded-2xl border border-slate-200/60 bg-white/80 px-4 py-2.5 text-sm shadow-sm
+                     focus:border-[#0d5f6b]/40 focus:ring-4 focus:ring-[#0d5f6b]/10 focus:outline-none transition"
             />
           </div>
 
           <div>
-            <label class="text-xs font-semibold uppercase tracking-wide text-slate-500">Type</label>
-            <div class="mt-1 flex rounded-2xl border border-slate-200 overflow-hidden">
+            <label class="text-xs font-bold uppercase tracking-wider text-slate-400">Type</label>
+            <div class="mt-2 flex rounded-2xl border border-slate-200/60 overflow-hidden shadow-sm">
               <button
                 @click="entryType = 'daily'"
-                class="px-4 py-2 text-sm font-medium transition"
+                class="px-5 py-2.5 text-sm font-semibold transition-all duration-200"
                 :class="entryType === 'daily'
-                  ? 'bg-slate-900 text-white'
+                  ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] text-white'
                   : 'bg-white text-slate-600 hover:bg-slate-50'"
               >
                 Daily
               </button>
               <button
                 @click="entryType = 'weekly'"
-                class="px-4 py-2 text-sm font-medium transition"
+                class="px-5 py-2.5 text-sm font-semibold transition-all duration-200"
                 :class="entryType === 'weekly'
-                  ? 'bg-slate-900 text-white'
+                  ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] text-white'
                   : 'bg-white text-slate-600 hover:bg-slate-50'"
               >
                 Weekly recap
@@ -208,11 +218,10 @@ const typePillClass = {
 
         <!-- Text area + mic -->
         <div>
-          <div class="flex items-center justify-between mb-2">
-            <label class="text-sm font-medium text-slate-700">
+          <div class="flex items-center justify-between mb-3">
+            <label class="text-sm font-bold text-slate-700">
               {{ entryType === 'weekly' ? 'How did the week go?' : 'What happened today?' }}
             </label>
-            <!-- Mic button — always visible; disabled with tooltip when browser doesn't support it -->
             <MicButton
               :listening="isListening"
               :supported="speechSupported"
@@ -222,29 +231,29 @@ const typePillClass = {
           <textarea
             v-model="entryText"
             rows="6"
-            class="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm
-                   focus:border-rose-300 focus:ring-4 focus:ring-rose-100 focus:outline-none"
-            :class="isListening ? 'border-rose-300 ring-4 ring-rose-100' : ''"
+            class="w-full rounded-2xl border border-slate-200/60 bg-white/80 px-4 py-3 text-sm shadow-sm
+                   focus:border-[#0d5f6b]/40 focus:ring-4 focus:ring-[#0d5f6b]/10 focus:outline-none transition"
+            :class="isListening ? 'border-[#0d5f6b]/40 ring-4 ring-[#0d5f6b]/10' : ''"
             :placeholder="entryType === 'weekly'
               ? 'What went well this week? Any wins worth celebrating? Who stood out?'
               : 'What happened today? Any small wins, breakthroughs, or moments worth noting?'"
           />
-          <p v-if="isListening" class="mt-1.5 flex items-center gap-1.5 text-xs text-rose-600 font-medium">
-            <span class="h-2 w-2 rounded-full bg-rose-500 animate-pulse"></span>
+          <p v-if="isListening" class="mt-2 flex items-center gap-2 text-sm text-[#0d5f6b] font-semibold">
+            <span class="h-2.5 w-2.5 rounded-full bg-[#0d5f6b] animate-pulse"></span>
             Listening — speak now, click the mic again to stop
           </p>
         </div>
 
-        <div v-if="errorMsg" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-          <span class="font-semibold">Error:</span> {{ errorMsg }}
+        <div v-if="errorMsg" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3.5 text-sm text-rose-800">
+          <span class="font-bold">Error:</span> {{ errorMsg }}
         </div>
 
         <button
           @click="saveAndAnalyze"
           :disabled="loading"
-          class="inline-flex w-full items-center justify-center gap-2 rounded-2xl
-                 bg-gradient-to-r from-rose-600 to-amber-500 px-4 py-3 text-sm font-semibold text-white
-                 shadow-sm transition hover:brightness-95 disabled:opacity-60"
+          class="inline-flex w-full items-center justify-center gap-2.5 rounded-2xl
+                 bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] hover:from-[#0b5060] hover:to-[#0a4a54] px-5 py-3.5 text-sm font-bold text-white
+                 shadow-lg shadow-[#0d5f6b]/25 transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60"
         >
           <span v-if="loading" class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
           {{ loading ? 'Saving & finding wins…' : 'Save & analyze' }}
@@ -253,28 +262,34 @@ const typePillClass = {
     </div>
 
     <!-- Entry history -->
-    <div v-if="sortedEntries.length" class="space-y-4">
-      <h2 class="text-base font-semibold text-slate-800 px-1">Journal history</h2>
+    <div v-if="sortedEntries.length" class="space-y-5">
+      <h2 class="text-base font-bold text-slate-800 px-1 flex items-center gap-2">
+        <span class="h-1.5 w-1.5 rounded-full bg-[#0d5f6b]"></span>
+        Journal history
+      </h2>
 
       <div
         v-for="entry in sortedEntries"
         :key="entry.id"
-        class="rounded-3xl border border-slate-200 bg-white shadow-sm"
+        class="group relative overflow-hidden rounded-3xl border border-slate-200/60 bg-white shadow-sm hover:shadow-lg hover:shadow-slate-200/40 transition-all duration-300"
       >
+        <!-- Gradient hover effect -->
+        <div class="absolute inset-0 bg-gradient-to-br from-teal-50/0 via-white to-emerald-50/0 group-hover:from-teal-50/20 group-hover:to-emerald-50/10 transition-all duration-300"></div>
+        
         <!-- Entry header -->
-        <div class="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+        <div class="relative flex items-start justify-between gap-3 border-b border-slate-100/60 px-6 py-4">
           <div class="flex flex-wrap items-center gap-2">
-            <span class="text-sm font-semibold text-slate-900">{{ formatDate(entry.date) }}</span>
+            <span class="text-sm font-bold text-slate-900">{{ formatDate(entry.date) }}</span>
             <span
-              class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium"
-              :class="typePillClass[entry.type] || 'border-slate-200 bg-slate-50 text-slate-700'"
+              class="inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide"
+              :class="typePillClass[entry.type] || 'border-slate-200 bg-slate-50 text-slate-600'"
             >
               {{ entry.type === 'weekly' ? 'Weekly recap' : 'Daily' }}
             </span>
           </div>
           <button
             @click="deleteEntry(entry.id)"
-            class="shrink-0 rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+            class="shrink-0 rounded-xl p-2 text-slate-300 hover:bg-rose-50 hover:text-rose-500 transition"
             title="Delete entry"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -283,43 +298,48 @@ const typePillClass = {
           </button>
         </div>
 
-        <div class="px-5 py-4 space-y-4">
+        <div class="relative px-6 py-5 space-y-5">
           <!-- Entry text preview -->
-          <p class="text-sm text-slate-700 line-clamp-3">{{ entry.text }}</p>
+          <p class="text-sm text-slate-600 line-clamp-3 leading-relaxed">{{ entry.text }}</p>
 
           <!-- Analysis loading indicator -->
-          <div v-if="!entry.analysis && !entry.analysisFailed" class="flex items-center gap-2 text-sm text-slate-500">
-            <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600"></span>
+          <div v-if="!entry.analysis && !entry.analysisFailed" class="flex items-center gap-3 text-sm text-slate-500 bg-slate-50/50 rounded-xl p-3">
+            <span class="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-[#0d5f6b]"></span>
             Analyzing for wins…
           </div>
 
           <!-- Analysis failed -->
-          <div v-else-if="entry.analysisFailed" class="text-sm text-rose-600">
+          <div v-else-if="entry.analysisFailed" class="text-sm text-rose-600 bg-rose-50/50 rounded-xl p-3">
             Analysis failed. The backend may be unavailable.
           </div>
 
           <!-- Analysis results -->
-          <div v-else-if="entry.analysis" class="space-y-3">
-            <p class="text-sm text-slate-600">
-              <span class="font-semibold text-slate-800">Summary:</span> {{ entry.analysis.summary }}
-            </p>
+          <div v-else-if="entry.analysis" class="space-y-4">
+            <div class="relative pl-4 border-l-2 border-teal-200/60">
+              <p class="text-sm text-slate-600">
+                <span class="font-bold text-slate-800">Summary:</span> {{ entry.analysis.summary }}
+              </p>
+            </div>
 
             <div v-if="entry.analysis.wins?.length">
-              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Detected wins</p>
-              <div class="space-y-2">
+              <p class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+                <span class="h-2 w-2 rounded-full bg-gradient-to-br from-[#0d5f6b] to-teal-400"></span>
+                Detected wins
+              </p>
+              <div class="space-y-3">
                 <div
                   v-for="win in entry.analysis.wins"
                   :key="win.id"
-                  class="rounded-2xl border border-slate-200 overflow-hidden"
+                  class="group/win rounded-2xl border border-slate-200/60 overflow-hidden bg-slate-50/30"
                 >
                   <button
                     @click="toggleWin(entry.id, win.id)"
-                    class="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50 transition"
+                    class="w-full flex items-center justify-between gap-3 px-5 py-4 text-left hover:bg-white/50 transition duration-200"
                   >
-                    <span class="text-sm font-medium text-slate-900">{{ win.title }}</span>
+                    <span class="text-sm font-bold text-slate-900">{{ win.title }}</span>
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
-                      class="h-4 w-4 shrink-0 text-slate-400 transition-transform"
+                      class="h-5 w-5 shrink-0 text-slate-400 transition-transform duration-300"
                       :class="expandedWins[entry.id] === win.id ? 'rotate-180' : ''"
                       viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                     >
@@ -329,14 +349,14 @@ const typePillClass = {
 
                   <div
                     v-if="expandedWins[entry.id] === win.id"
-                    class="border-t border-slate-100 px-4 py-3 space-y-2 bg-slate-50/50"
+                    class="border-t border-slate-100/60 px-5 py-4 space-y-3 bg-white/50"
                   >
-                    <p class="text-sm text-slate-700"><span class="font-semibold text-slate-900">Story:</span> {{ win.story }}</p>
-                    <p class="text-sm text-slate-700"><span class="font-semibold text-slate-900">Evidence:</span> {{ win.evidence }}</p>
+                    <p class="text-sm text-slate-700"><span class="font-bold text-slate-900">Story:</span> {{ win.story }}</p>
+                    <p class="text-sm text-slate-700"><span class="font-bold text-slate-900">Evidence:</span> {{ win.evidence }}</p>
                     <div>
-                      <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Celebration ideas</p>
-                      <ul class="list-disc pl-5 space-y-1 text-sm text-slate-700">
-                        <li v-for="(idea, i) in win.celebrationIdeas" :key="i">{{ idea }}</li>
+                      <p class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Celebration ideas</p>
+                      <ul class="list-disc pl-5 space-y-2 text-sm text-slate-700">
+                        <li v-for="(idea, i) in win.celebrationIdeas" :key="i" class="leading-relaxed">{{ idea }}</li>
                       </ul>
                     </div>
                   </div>
@@ -344,16 +364,19 @@ const typePillClass = {
               </div>
             </div>
 
-            <div v-else class="text-sm text-slate-500 italic">No wins detected in this entry.</div>
+            <div v-else class="text-sm text-slate-400 italic bg-slate-50/50 rounded-xl p-3">No wins detected in this entry.</div>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Empty state -->
-    <div v-else class="rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-5 py-14 text-center">
-      <p class="text-sm text-slate-600">No journal entries yet.</p>
-      <p class="mt-1 text-xs text-slate-400">Write your first entry above — daily notes or a weekly recap.</p>
+    <div v-else class="relative overflow-hidden rounded-3xl border border-dashed border-slate-200/60 bg-gradient-to-br from-slate-50 to-white px-5 py-16 text-center">
+      <div class="absolute inset-0 bg-[radial-gradient(circle_at_50%_100%,rgba(13,95,107,0.05),transparent_50%)]"></div>
+      <div class="relative">
+        <p class="text-base font-bold text-slate-600">No journal entries yet.</p>
+        <p class="mt-2 text-sm text-slate-400">Write your first entry above — daily notes or a weekly recap.</p>
+      </div>
     </div>
 
   </div>
