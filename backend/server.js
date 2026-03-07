@@ -6,7 +6,17 @@ const jwt = require('jsonwebtoken')
 const { createClient } = require('@supabase/supabase-js')
 
 const app = express()
-app.use(cors())
+
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
+  .split(',').map(s => s.trim())
+
+app.use(cors({
+  origin: (origin, cb) => {
+    // Allow no-origin requests (curl, server-to-server) and listed origins
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true)
+    cb(new Error(`CORS: origin ${origin} not allowed`))
+  },
+}))
 app.use(express.json({ limit: '1mb' }))
 
 const PORT = process.env.PORT || 8787

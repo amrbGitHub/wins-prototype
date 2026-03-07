@@ -1,25 +1,11 @@
 <script setup>
 import { ref, computed, onMounted, reactive } from 'vue'
-import { useAuth } from '../composables/useAuth.js'
+import { useApi } from '../composables/useApi.js'
 
-const { getAccessToken } = useAuth()
+const { apiFetch, apiFetchPublic } = useApi()
 
 // ── Data ────────────────────────────────────────────────────────────
 const entries = ref([])
-
-async function apiFetch(path, options = {}) {
-  const token = getAccessToken()
-  const res = await fetch(path, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-      ...options.headers,
-    },
-  })
-  if (!res.ok) throw new Error(await res.text())
-  return res.json()
-}
 
 async function loadEntries() {
   try {
@@ -94,13 +80,10 @@ async function generateMessage() {
   modal.error   = ''
   modal.draft   = ''
   try {
-    const res = await fetch('/api/generate-message', {
+    const data = await apiFetchPublic('/api/generate-message', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ win: modal.win, customRequest: modal.request }),
     })
-    if (!res.ok) throw new Error(await res.text())
-    const data = await res.json()
     modal.draft = data.draft
     modal.stage = 'draft'
   } catch (e) {

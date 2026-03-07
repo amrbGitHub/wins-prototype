@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: wins-backend
+    env: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_VERSION
+        value: 20.0.0
+      - key: OLLAMA_MODEL
+        value: llama3.2
+      # Set this to your Cloudflare tunnel URL (e.g. https://your-tunnel.trycloudflare.com/v1)
+      - key: OLLAMA_BASE_URL
+        sync: false
+      # Set this to your Vercel frontend URL (e.g. https://your-app.vercel.app)
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false

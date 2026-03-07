@@ -1,10 +1,10 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useSpeech } from '../composables/useSpeech.js'
-import { useAuth } from '../composables/useAuth.js'
+import { useApi } from '../composables/useApi.js'
 import MicButton from './MicButton.vue'
 
-const { getAccessToken } = useAuth()
+const { apiFetch, apiFetchPublic } = useApi()
 
 // --- Speech ---
 const { isSupported: speechSupported, isListening, toggleListening } = useSpeech()
@@ -24,21 +24,6 @@ function today() {
   return new Date().toISOString().slice(0, 10)
 }
 
-// Authenticated fetch helper — attaches Bearer token automatically
-async function apiFetch(path, options = {}) {
-  const token = getAccessToken()
-  const res = await fetch(path, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-      ...options.headers,
-    },
-  })
-  if (!res.ok) throw new Error(await res.text())
-  if (res.status === 204) return null
-  return res.json()
-}
 
 async function loadEntries() {
   try {
@@ -91,13 +76,10 @@ async function saveAndAnalyze() {
 
   try {
     // Phase 2: run AI analysis (existing endpoint)
-    const res = await fetch('/api/analyze-journal', {
+    const analysis = await apiFetchPublic('/api/analyze-journal', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: newEntry.text, type: newEntry.type }),
     })
-    if (!res.ok) throw new Error(await res.text())
-    const analysis = await res.json()
 
     // Phase 3: persist analysis to Supabase
     const updated = await apiFetch(`/api/entries/${newEntry.id}/analysis`, {
