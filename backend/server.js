@@ -2,6 +2,8 @@ require('dotenv').config()
 
 const express = require('express')
 const cors = require('cors')
+const jwt = require('jsonwebtoken')
+const { createClient } = require('@supabase/supabase-js')
 
 const app = express()
 app.use(cors())
@@ -10,6 +12,41 @@ app.use(express.json({ limit: '1mb' }))
 const PORT = process.env.PORT || 8787
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1'
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2'
+
+// Supabase admin client (service role — bypasses RLS, server-side only)
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+)
+const JWT_SECRET = process.env.SUPABASE_JWT_SECRET
+
+// Auth middleware: verify Supabase JWT and attach userId to req
+function verifyToken(req, res, next) {
+  const header = req.headers.authorization
+  if (!header?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing authorization header' })
+  }
+  try {
+    const decoded = jwt.verify(header.slice(7), JWT_SECRET, { algorithms: ['HS256'] })
+    req.userId = decoded.sub  // Supabase user UUID
+    next()
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired token' })
+  }
+}
+
+// Map DB snake_case row → frontend camelCase shape (matches existing localStorage shape)
+function dbRowToEntry(row) {
+  return {
+    id:             row.id,
+    date:           row.date,
+    type:           row.type,
+    text:           row.text,
+    analysis:       row.analysis,
+    analysisFailed: row.analysis_failed,
+    createdAt:      new Date(row.created_at).getTime(),
+  }
+}
 
 // Helper: call Ollama via its OpenAI-compatible chat completions endpoint
 async function ollamaChat({ messages, temperature = 0.4, json = false }) {
@@ -40,6 +77,92 @@ function parseJSON(content) {
   const cleaned = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
   return JSON.parse(cleaned)
 }
+
+// ── Journal entry CRUD ────────────────────────────────────────────────────────
+
+// GET /api/entries — fetch all entries for the authenticated user
+app.get('/api/entries', verifyToken, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('journal_entries')
+      .select('*')
+      .eq('user_id', req.userId)
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+    res.json(data.map(dbRowToEntry))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/entries — create a new entry (no analysis yet)
+app.post('/api/entries', verifyToken, async (req, res) => {
+  try {
+    const { date, type, text } = req.body || {}
+    if (!text?.trim()) return res.status(400).json({ error: 'Missing text' })
+
+    const { data, error } = await supabase
+      .from('journal_entries')
+      .insert({
+        user_id:         req.userId,
+        date,
+        type,
+        text:            text.trim(),
+        analysis:        null,
+        analysis_failed: false,
+      })
+      .select()
+      .single()
+
+    if (error) throw error
+    res.status(201).json(dbRowToEntry(data))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// PATCH /api/entries/:id/analysis — persist analysis result or failure flag
+app.patch('/api/entries/:id/analysis', verifyToken, async (req, res) => {
+  try {
+    const { analysis, analysisFailed } = req.body || {}
+    const updatePayload = {}
+    if (analysis !== undefined)       updatePayload.analysis        = analysis
+    if (analysisFailed !== undefined) updatePayload.analysis_failed = analysisFailed
+
+    const { data, error } = await supabase
+      .from('journal_entries')
+      .update(updatePayload)
+      .eq('id', req.params.id)
+      .eq('user_id', req.userId)  // prevents touching another user's entry
+      .select()
+      .single()
+
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'Entry not found' })
+    res.json(dbRowToEntry(data))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// DELETE /api/entries/:id — delete an entry
+app.delete('/api/entries/:id', verifyToken, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('journal_entries')
+      .delete()
+      .eq('id', req.params.id)
+      .eq('user_id', req.userId)
+
+    if (error) throw error
+    res.status(204).send()
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── AI endpoints (unchanged) ──────────────────────────────────────────────────
 
 // 1) Analyze check-in -> wins + ideas
 app.post('/api/analyze', async (req, res) => {
