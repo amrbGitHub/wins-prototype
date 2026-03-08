@@ -2,7 +2,6 @@ require('dotenv').config()
 
 const express = require('express')
 const cors = require('cors')
-const jwt = require('jsonwebtoken')
 const { createClient } = require('@supabase/supabase-js')
 
 const app = express()
@@ -40,20 +39,22 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 )
-const JWT_SECRET = process.env.SUPABASE_JWT_SECRET
-
-// Auth middleware: verify Supabase JWT and attach userId to req
-function verifyToken(req, res, next) {
+// Auth middleware: verify Supabase JWT via Supabase's own auth API
+async function verifyToken(req, res, next) {
   const header = req.headers.authorization
   if (!header?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Missing authorization header' })
   }
   try {
-    const decoded = jwt.verify(header.slice(7), JWT_SECRET, { algorithms: ['HS256'] })
-    req.userId = decoded.sub  // Supabase user UUID
+    const { data: { user }, error } = await supabase.auth.getUser(header.slice(7))
+    if (error || !user) {
+      return res.status(401).json({ error: 'Invalid or expired token', detail: error?.message })
+    }
+    req.userId = user.id
     next()
-  } catch {
-    return res.status(401).json({ error: 'Invalid or expired token' })
+  } catch (err) {
+    console.error('verifyToken error:', err.message)
+    return res.status(401).json({ error: 'Invalid or expired token', detail: err.message })
   }
 }
 
