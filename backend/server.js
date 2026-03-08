@@ -7,13 +7,25 @@ const { createClient } = require('@supabase/supabase-js')
 
 const app = express()
 
+// Normalise to remove trailing slashes; support "*." wildcard prefix patterns
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
-  .split(',').map(s => s.trim())
+  .split(',').map(s => s.trim().replace(/\/$/, ''))
+
+function originAllowed(origin) {
+  if (!origin) return true // curl / server-to-server
+  const o = origin.replace(/\/$/, '')
+  return ALLOWED_ORIGINS.some(pattern => {
+    if (pattern.startsWith('*.')) {
+      // wildcard subdomain: *.vercel.app matches anything.vercel.app
+      return o.endsWith(pattern.slice(1))
+    }
+    return o === pattern
+  })
+}
 
 app.use(cors({
   origin: (origin, cb) => {
-    // Allow no-origin requests (curl, server-to-server) and listed origins
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true)
+    if (originAllowed(origin)) return cb(null, true)
     cb(new Error(`CORS: origin ${origin} not allowed`))
   },
 }))
