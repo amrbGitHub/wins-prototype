@@ -81,11 +81,21 @@ async function ollamaChat({ messages, temperature = 0.4, json = false }) {
   }
   if (json) body.format = 'json'
 
-  const resp = await fetch(`${OLLAMA_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+  let resp
+  try {
+    resp = await fetch(`${OLLAMA_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+      },
+      body: JSON.stringify(body),
+    })
+  } catch (err) {
+    // Network-level failure (tunnel down, DNS error, connection refused, etc.)
+    const cause = err.cause?.message ?? err.cause ?? ''
+    throw new Error(`Ollama unreachable at ${OLLAMA_BASE_URL}: ${err.message}${cause ? ` (${cause})` : ''}`)
+  }
 
   if (!resp.ok) {
     const text = await resp.text()
