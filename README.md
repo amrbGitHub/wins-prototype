@@ -5,6 +5,8 @@ As of 3/7/2026
 
 - All journal entries are now stored via Supabase to store entries per account and not per browser.
 
+- We can run the LLM with this command on PowerShell: `$env:OLLAMA_HOST="0.0.0.0"; ollama serve`
+
 
 <img width="1708" height="917" alt="image" src="https://github.com/user-attachments/assets/1bc5a188-1833-459d-a328-77fb723dac1b" />
 <img width="1576" height="712" alt="image" src="https://github.com/user-attachments/assets/94cceb57-7ca6-49f6-b506-1078273fb2c6" />
