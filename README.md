@@ -1,3 +1,15 @@
+
+### Most Recent Changes 
+As of 3/7/2026
+- Web app now deploys on Vercel + Render, LLM tunnel to backend using ngrok. LLM still needs to be manually activated because deploying it on cloud is not feasible during the current state of the application. 
+
+- All journal entries are now stored via Supabase to store entries per account and not per browser.
+
+
+<img width="1708" height="917" alt="image" src="https://github.com/user-attachments/assets/1bc5a188-1833-459d-a328-77fb723dac1b" />
+<img width="1576" height="712" alt="image" src="https://github.com/user-attachments/assets/94cceb57-7ca6-49f6-b506-1078273fb2c6" />
+
+
 ### Main Features that were added
 
 ### Older Changes Notes
@@ -13,14 +25,4 @@ Added persistent browser storage so wins are saved per browser (future prototype
 ### Old UI
 <img width="1903" height="1007" alt="image" src="https://github.com/user-attachments/assets/ca06ed4d-822a-4b33-a793-20e58aae2cc6" />
 <img width="1905" height="882" alt="image" src="https://github.com/user-attachments/assets/3b81c7fc-71a7-4231-851b-e945f80b3004" />
-
-### Most Recent Changes 
-As of 3/7/2026
-- Web app now deploys on Vercel + Render, LLM tunnel to backend using ngrok. LLM still needs to be manually activated because deploying it on cloud is not feasible during the current state of the application. 
-
-- All journal entries are now stored via Supabase to store entries per account and not per browser.
-
-
-<img width="1708" height="917" alt="image" src="https://github.com/user-attachments/assets/1bc5a188-1833-459d-a328-77fb723dac1b" />
-<img width="1576" height="712" alt="image" src="https://github.com/user-attachments/assets/94cceb57-7ca6-49f6-b506-1078273fb2c6" />
 
