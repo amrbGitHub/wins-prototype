@@ -89,7 +89,7 @@ async function ollamaChat({ messages, temperature = 0.4, json = false }) {
 
   if (!resp.ok) {
     const text = await resp.text()
-    throw new Error(`Ollama error ${resp.status}: ${text}`)
+    throw new Error(`Ollama error ${resp.status} at ${OLLAMA_BASE_URL}/chat/completions: ${text}`)
   }
 
   return resp.json()
