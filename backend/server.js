@@ -2,11 +2,32 @@ require('dotenv').config()
 
 const express = require('express')
 const cors = require('cors')
-const jwt = require('jsonwebtoken')
 const { createClient } = require('@supabase/supabase-js')
 
 const app = express()
-app.use(cors())
+
+// Normalise to remove trailing slashes; support "*." wildcard prefix patterns
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
+  .split(',').map(s => s.trim().replace(/\/$/, ''))
+
+function originAllowed(origin) {
+  if (!origin) return true // curl / server-to-server
+  const o = origin.replace(/\/$/, '')
+  return ALLOWED_ORIGINS.some(pattern => {
+    if (pattern.startsWith('*.')) {
+      // wildcard subdomain: *.vercel.app matches anything.vercel.app
+      return o.endsWith(pattern.slice(1))
+    }
+    return o === pattern
+  })
+}
+
+app.use(cors({
+  origin: (origin, cb) => {
+    if (originAllowed(origin)) return cb(null, true)
+    cb(new Error(`CORS: origin ${origin} not allowed`))
+  },
+}))
 app.use(express.json({ limit: '1mb' }))
 
 const PORT = process.env.PORT || 8787
@@ -18,20 +39,22 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 )
-const JWT_SECRET = process.env.SUPABASE_JWT_SECRET
-
-// Auth middleware: verify Supabase JWT and attach userId to req
-function verifyToken(req, res, next) {
+// Auth middleware: verify Supabase JWT via Supabase's own auth API
+async function verifyToken(req, res, next) {
   const header = req.headers.authorization
   if (!header?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Missing authorization header' })
   }
   try {
-    const decoded = jwt.verify(header.slice(7), JWT_SECRET, { algorithms: ['HS256'] })
-    req.userId = decoded.sub  // Supabase user UUID
+    const { data: { user }, error } = await supabase.auth.getUser(header.slice(7))
+    if (error || !user) {
+      return res.status(401).json({ error: 'Invalid or expired token', detail: error?.message })
+    }
+    req.userId = user.id
     next()
-  } catch {
-    return res.status(401).json({ error: 'Invalid or expired token' })
+  } catch (err) {
+    console.error('verifyToken error:', err.message)
+    return res.status(401).json({ error: 'Invalid or expired token', detail: err.message })
   }
 }
 
@@ -58,15 +81,25 @@ async function ollamaChat({ messages, temperature = 0.4, json = false }) {
   }
   if (json) body.format = 'json'
 
-  const resp = await fetch(`${OLLAMA_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+  let resp
+  try {
+    resp = await fetch(`${OLLAMA_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+      },
+      body: JSON.stringify(body),
+    })
+  } catch (err) {
+    // Network-level failure (tunnel down, DNS error, connection refused, etc.)
+    const cause = err.cause?.message ?? err.cause ?? ''
+    throw new Error(`Ollama unreachable at ${OLLAMA_BASE_URL}: ${err.message}${cause ? ` (${cause})` : ''}`)
+  }
 
   if (!resp.ok) {
     const text = await resp.text()
-    throw new Error(`Ollama error ${resp.status}: ${text}`)
+    throw new Error(`Ollama error ${resp.status} at ${OLLAMA_BASE_URL}/chat/completions: ${text}`)
   }
 
   return resp.json()
