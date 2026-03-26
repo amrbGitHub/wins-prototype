@@ -3,14 +3,23 @@ import { ref } from 'vue'
 import { useAuth } from './composables/useAuth.js'
 import Celebrate from './components/Celebrate.vue'
 import Journal   from './components/Journal.vue'
+import Planner   from './components/Planner.vue'
+import MyGoals   from './components/MyGoals.vue'
 import AuthPage  from './components/AuthPage.vue'
 
 const { user, loading, signOut } = useAuth()
 const currentView = ref('celebrate')
+
+const tabs = [
+  { id: 'celebrate', label: 'Celebrate' },
+  { id: 'journal',   label: 'Journal'   },
+  { id: 'planner',   label: 'Planner'   },
+  { id: 'goals',     label: 'My Goals'  },
+]
 </script>
 
 <template>
-  <!-- Hydrating session from storage — prevents flash of login page for logged-in users -->
+  <!-- Hydrating session — prevents flash of login page for logged-in users -->
   <div v-if="loading" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
     <div class="flex flex-col items-center gap-3">
       <div class="relative">
@@ -27,13 +36,12 @@ const currentView = ref('celebrate')
   <AuthPage v-else-if="!user" />
 
   <!-- Authenticated -->
-  <div
-    v-else
-    class="min-h-screen text-slate-900 bg-gradient-to-br from-slate-50 via-white to-teal-50/30"
-  >
+  <div v-else class="min-h-screen text-slate-900 bg-gradient-to-br from-slate-50 via-white to-teal-50/30">
+
     <!-- Header -->
     <header class="sticky top-0 z-10 border-b border-slate-200/60 bg-white/80 backdrop-blur-xl shadow-sm">
       <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
+
         <!-- Logo -->
         <div class="flex items-center gap-3">
           <div class="relative">
@@ -48,25 +56,18 @@ const currentView = ref('celebrate')
           </div>
         </div>
 
-        <!-- Desktop nav tabs -->
+        <!-- Desktop nav -->
         <div class="hidden sm:flex rounded-2xl border border-slate-200/60 bg-slate-50/80 p-0.5 shadow-inner">
           <button
-            @click="currentView = 'celebrate'"
-            class="rounded-xl px-5 py-2 text-sm font-semibold transition-all duration-200"
-            :class="currentView === 'celebrate' 
-              ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] text-white shadow-md shadow-[#0d5f6b]/20' 
+            v-for="tab in tabs"
+            :key="tab.id"
+            @click="currentView = tab.id"
+            class="rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-200"
+            :class="currentView === tab.id
+              ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] text-white shadow-md shadow-[#0d5f6b]/20'
               : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'"
           >
-            Celebrate
-          </button>
-          <button
-            @click="currentView = 'journal'"
-            class="rounded-xl px-5 py-2 text-sm font-semibold transition-all duration-200"
-            :class="currentView === 'journal' 
-              ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] text-white shadow-md shadow-[#0d5f6b]/20' 
-              : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'"
-          >
-            Journal
+            {{ tab.label }}
           </button>
         </div>
 
@@ -91,24 +92,24 @@ const currentView = ref('celebrate')
       <!-- Mobile nav -->
       <div class="flex sm:hidden border-t border-slate-100/60 bg-white/50">
         <button
-          @click="currentView = 'celebrate'"
-          class="flex-1 py-3 text-sm font-semibold transition-all duration-200"
-          :class="currentView === 'celebrate' ? 'text-[#0d5f6b] border-b-2 border-[#0d5f6b] bg-gradient-to-r from-teal-50/50 to-transparent' : 'text-slate-400'"
+          v-for="tab in tabs"
+          :key="tab.id"
+          @click="currentView = tab.id"
+          class="flex-1 py-2.5 text-xs font-semibold transition-all duration-200"
+          :class="currentView === tab.id
+            ? 'text-[#0d5f6b] border-b-2 border-[#0d5f6b] bg-gradient-to-r from-teal-50/50 to-transparent'
+            : 'text-slate-400'"
         >
-          Celebrate
-        </button>
-        <button
-          @click="currentView = 'journal'"
-          class="flex-1 py-3 text-sm font-semibold transition-all duration-200"
-          :class="currentView === 'journal' ? 'text-[#0d5f6b] border-b-2 border-[#0d5f6b] bg-gradient-to-r from-teal-50/50 to-transparent' : 'text-slate-400'"
-        >
-          Journal
+          {{ tab.label }}
         </button>
       </div>
     </header>
 
     <!-- Views -->
     <Celebrate v-if="currentView === 'celebrate'" />
-    <Journal   v-else />
+    <Journal   v-else-if="currentView === 'journal'" />
+    <Planner   v-else-if="currentView === 'planner'" @go-to-goals="currentView = 'goals'" />
+    <MyGoals   v-else-if="currentView === 'goals'" />
+
   </div>
 </template>

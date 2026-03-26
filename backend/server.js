@@ -58,6 +58,19 @@ async function verifyToken(req, res, next) {
   }
 }
 
+// Map DB snake_case goal row → frontend shape
+function dbGoalToShape(row) {
+  return {
+    id:              row.id,
+    month:           row.month,
+    title:           row.title,
+    description:     row.description,
+    successCriteria: row.success_criteria,
+    status:          row.status,
+    createdAt:       new Date(row.created_at).getTime(),
+  }
+}
+
 // Map DB snake_case row → frontend camelCase shape (matches existing localStorage shape)
 function dbRowToEntry(row) {
   return {
@@ -433,6 +446,191 @@ Write the message the trainer will send now.
     res.json({ draft })
   } catch (err) {
     res.status(500).send(err.message)
+  }
+})
+
+// ── Planner endpoints ─────────────────────────────────────────────────────────
+
+// GET /api/planner/:month — load session (messages) for a month
+app.get('/api/planner/:month', verifyToken, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('planner_sessions')
+      .select('messages, ready_to_extract')
+      .eq('user_id', req.userId)
+      .eq('month', req.params.month)
+      .single()
+    if (error && error.code !== 'PGRST116') throw error
+    res.json(data ? { messages: data.messages, readyToExtract: data.ready_to_extract } : null)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/planner/session — upsert session (persist messages after each turn)
+app.post('/api/planner/session', verifyToken, async (req, res) => {
+  try {
+    const { month, messages, readyToExtract } = req.body || {}
+    const { error } = await supabase
+      .from('planner_sessions')
+      .upsert({ user_id: req.userId, month, messages, ready_to_extract: readyToExtract ?? false },
+               { onConflict: 'user_id,month' })
+    if (error) throw error
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/planner/chat — stateless AI turn (no auth required)
+app.post('/api/planner/chat', async (req, res) => {
+  try {
+    const { messages = [], month } = req.body || {}
+    const [y, m] = (month || '').split('-')
+    const monthLabel = y && m
+      ? new Date(parseInt(y), parseInt(m) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      : 'this month'
+
+    const system = `
+You are a warm, thoughtful planning coach for a workplace trainer (L&D professional).
+Help them clarify their professional goals for ${monthLabel} through natural conversation.
+
+Ask ONE focused question at a time. Progress through these themes:
+1. Their main professional priority or focus for the month
+2. Specific, concrete outcomes they want to achieve
+3. Challenges or obstacles they anticipate
+4. How they'll know they've succeeded (success criteria)
+5. Key habits, resources, or support they need
+
+Guidelines:
+- Be warm and encouraging — like a trusted coach, not a form
+- Acknowledge what they share before asking the next question
+- Ask follow-up questions if an answer is vague
+- After 4-6 meaningful exchanges where you have a clear picture, set readyToExtract to true
+- If this is the opening message (no prior messages), greet them briefly and ask your first question
+
+Always respond with valid JSON only:
+{"message":"your response here","readyToExtract":false}
+
+Set readyToExtract to true ONLY when you have enough to write 2-4 clear, actionable goals.
+`.trim()
+
+    const completion = await ollamaChat({
+      messages: [{ role: 'system', content: system }, ...messages],
+      temperature: 0.6,
+      json: true,
+    })
+
+    const content = completion?.choices?.[0]?.message?.content
+    let parsed
+    try {
+      parsed = parseJSON(content)
+    } catch {
+      parsed = { message: content?.trim() || 'Sorry, I had trouble responding. Please try again.', readyToExtract: false }
+    }
+
+    res.json({ message: parsed.message || '', readyToExtract: !!parsed.readyToExtract })
+  } catch (err) {
+    res.status(500).send(err.message)
+  }
+})
+
+// POST /api/planner/extract-goals — extract structured goals and save to DB
+app.post('/api/planner/extract-goals', verifyToken, async (req, res) => {
+  try {
+    const { messages = [], month } = req.body || {}
+    const [y, m] = (month || '').split('-')
+    const monthLabel = y && m
+      ? new Date(parseInt(y), parseInt(m) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      : 'this month'
+
+    const system = `
+You are a planning coach summarising a goal-setting conversation for a workplace trainer.
+Extract 2-5 clear, actionable professional goals for ${monthLabel}.
+
+Each goal must have:
+- title: short name, max 8 words
+- description: what they want to achieve, 1-2 sentences
+- successCriteria: one concrete sentence — how they'll know it's done
+
+Return ONLY valid JSON:
+{"goals":[{"title":"...","description":"...","successCriteria":"..."}],"summary":"1-2 sentence overview of the month's focus"}
+`.trim()
+
+    const transcript = messages
+      .map(msg => `${msg.role === 'user' ? 'Trainer' : 'Coach'}: ${msg.content}`)
+      .join('\n\n')
+
+    const completion = await ollamaChat({
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: `Planning conversation:\n\n${transcript}\n\nExtract the goals now.` },
+      ],
+      temperature: 0.3,
+      json: true,
+    })
+
+    const content = completion?.choices?.[0]?.message?.content
+    const parsed = parseJSON(content)
+    if (!parsed.goals?.length) return res.status(400).json({ error: 'No goals could be extracted' })
+
+    // Replace any existing goals for this month
+    await supabase.from('goals').delete().eq('user_id', req.userId).eq('month', month)
+
+    const { data, error } = await supabase
+      .from('goals')
+      .insert(parsed.goals.map(g => ({
+        user_id:          req.userId,
+        month,
+        title:            g.title,
+        description:      g.description,
+        success_criteria: g.successCriteria,
+        status:           'active',
+      })))
+      .select()
+    if (error) throw error
+
+    res.json({ goals: data.map(dbGoalToShape), summary: parsed.summary })
+  } catch (err) {
+    res.status(500).send(err.message)
+  }
+})
+
+// ── Goals endpoints ───────────────────────────────────────────────────────────
+
+// GET /api/goals — fetch goals, optional ?month=YYYY-MM filter
+app.get('/api/goals', verifyToken, async (req, res) => {
+  try {
+    let query = supabase
+      .from('goals')
+      .select('*')
+      .eq('user_id', req.userId)
+      .order('created_at', { ascending: true })
+    if (req.query.month) query = query.eq('month', req.query.month)
+    const { data, error } = await query
+    if (error) throw error
+    res.json(data.map(dbGoalToShape))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// PATCH /api/goals/:id — update goal status
+app.patch('/api/goals/:id', verifyToken, async (req, res) => {
+  try {
+    const { status } = req.body || {}
+    const { data, error } = await supabase
+      .from('goals')
+      .update({ status })
+      .eq('id', req.params.id)
+      .eq('user_id', req.userId)
+      .select()
+      .single()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'Goal not found' })
+    res.json(dbGoalToShape(data))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
   }
 })
 
