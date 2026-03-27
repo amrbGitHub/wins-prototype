@@ -467,22 +467,52 @@ app.get('/api/planner/:month', verifyToken, async (req, res) => {
   }
 })
 
-// POST /api/planner/session — upsert session (persist messages after each turn)
+// POST /api/planner/session — upsert session messages; also replaces goals if provided
 app.post('/api/planner/session', verifyToken, async (req, res) => {
   try {
-    const { month, messages, readyToExtract } = req.body || {}
-    const { error } = await supabase
+    const { month, messages, goals } = req.body || {}
+
+    const { error: sessErr } = await supabase
       .from('planner_sessions')
-      .upsert({ user_id: req.userId, month, messages, ready_to_extract: readyToExtract ?? false },
-               { onConflict: 'user_id,month' })
-    if (error) throw error
+      .upsert({ user_id: req.userId, month, messages }, { onConflict: 'user_id,month' })
+    if (sessErr) throw sessErr
+
+    // Replace goals for this month whenever the AI returns an updated list
+    if (Array.isArray(goals) && goals.length) {
+      await supabase.from('goals').delete().eq('user_id', req.userId).eq('month', month)
+      const { error: goalsErr } = await supabase
+        .from('goals')
+        .insert(goals.map(g => ({
+          user_id:          req.userId,
+          month,
+          title:            g.title,
+          description:      g.description,
+          success_criteria: g.successCriteria,
+          status:           'active',
+        })))
+      if (goalsErr) throw goalsErr
+    }
+
     res.json({ ok: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
 
-// POST /api/planner/chat — stateless AI turn (no auth required)
+// DELETE /api/planner/:month — delete chat history and all goals for the month
+app.delete('/api/planner/:month', verifyToken, async (req, res) => {
+  try {
+    await Promise.all([
+      supabase.from('planner_sessions').delete().eq('user_id', req.userId).eq('month', req.params.month),
+      supabase.from('goals').delete().eq('user_id', req.userId).eq('month', req.params.month),
+    ])
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/planner/chat — stateless AI turn; returns message + live-updated goals
 app.post('/api/planner/chat', async (req, res) => {
   try {
     const { messages = [], month } = req.body || {}
@@ -504,15 +534,18 @@ Ask ONE focused question at a time. Progress through these themes:
 
 Guidelines:
 - Be warm and encouraging — like a trusted coach, not a form
-- Acknowledge what they share before asking the next question
+- Acknowledge what they share before moving on
 - Ask follow-up questions if an answer is vague
-- After 4-6 meaningful exchanges where you have a clear picture, set readyToExtract to true
 - If this is the opening message (no prior messages), greet them briefly and ask your first question
 
-Always respond with valid JSON only:
-{"message":"your response here","readyToExtract":false}
+GOAL TRACKING — this is critical:
+After every response, maintain a "goals" array that represents your BEST CURRENT understanding of the user's goals based on everything shared so far.
+- Start with an empty array; add goals as soon as you have enough detail (usually after 2-3 exchanges)
+- Refine and update existing goals as you learn more — do not duplicate
+- Each goal needs: title (max 8 words), description (1-2 sentences), successCriteria (one sentence on how they'll know it's done)
 
-Set readyToExtract to true ONLY when you have enough to write 2-4 clear, actionable goals.
+Always respond with valid JSON only — no text outside the JSON:
+{"message":"your conversational response","goals":[{"title":"...","description":"...","successCriteria":"..."}]}
 `.trim()
 
     const completion = await ollamaChat({
@@ -526,10 +559,10 @@ Set readyToExtract to true ONLY when you have enough to write 2-4 clear, actiona
     try {
       parsed = parseJSON(content)
     } catch {
-      parsed = { message: content?.trim() || 'Sorry, I had trouble responding. Please try again.', readyToExtract: false }
+      parsed = { message: content?.trim() || 'Sorry, I had trouble responding. Please try again.', goals: [] }
     }
 
-    res.json({ message: parsed.message || '', readyToExtract: !!parsed.readyToExtract })
+    res.json({ message: parsed.message || '', goals: Array.isArray(parsed.goals) ? parsed.goals : [] })
   } catch (err) {
     res.status(500).send(err.message)
   }

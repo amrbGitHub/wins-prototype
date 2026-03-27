@@ -6,29 +6,32 @@ const emit = defineEmits(['goToGoals'])
 const { apiFetch, apiFetchPublic } = useApi()
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const month         = ref(new Date().toISOString().slice(0, 7))
-const messages      = ref([])
-const input         = ref('')
-const loading       = ref(false)
-const saving        = ref(false)
-const readyToExtract = ref(false)
-const started       = ref(false)
-const error         = ref('')
-const messagesEl    = ref(null)
+const month      = ref(new Date().toISOString().slice(0, 7))
+const messages   = ref([])
+const input      = ref('')
+const loading    = ref(false)
+const deleting   = ref(false)
+const goalCount  = ref(0)
+const started    = ref(false)
+const error      = ref('')
+const messagesEl = ref(null)
 
 const monthLabel = computed(() => {
   const [y, m] = month.value.split('-').map(Number)
   return new Date(y, m - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 })
 
-// ── Load existing session ─────────────────────────────────────────────────────
+// ── Load existing session on mount ────────────────────────────────────────────
 onMounted(async () => {
   try {
-    const data = await apiFetch(`/api/planner/${month.value}`)
-    if (data?.messages?.length) {
-      messages.value    = data.messages
-      readyToExtract.value = data.readyToExtract ?? false
-      started.value     = true
+    const [sessionData, goalsData] = await Promise.all([
+      apiFetch(`/api/planner/${month.value}`),
+      apiFetch(`/api/goals?month=${month.value}`).catch(() => []),
+    ])
+    if (sessionData?.messages?.length) {
+      messages.value = sessionData.messages
+      goalCount.value = goalsData?.length ?? 0
+      started.value = true
       await scrollToBottom()
     }
   } catch { /* no session yet */ }
@@ -40,13 +43,12 @@ async function scrollToBottom() {
   messagesEl.value?.lastElementChild?.scrollIntoView({ behavior: 'smooth' })
 }
 
-async function persistSession() {
-  try {
-    await apiFetch('/api/planner/session', {
-      method: 'POST',
-      body: JSON.stringify({ month: month.value, messages: messages.value, readyToExtract: readyToExtract.value }),
-    })
-  } catch { /* best effort */ }
+// Fire-and-forget — persists messages + latest goals without blocking the UI
+function persistSession(goals) {
+  apiFetch('/api/planner/session', {
+    method: 'POST',
+    body: JSON.stringify({ month: month.value, messages: messages.value, goals }),
+  }).catch(() => {})
 }
 
 // ── Start planning ────────────────────────────────────────────────────────────
@@ -59,12 +61,12 @@ async function startPlanning() {
       method: 'POST',
       body: JSON.stringify({ messages: [], month: month.value }),
     })
-    messages.value       = [{ role: 'assistant', content: data.message }]
-    readyToExtract.value = data.readyToExtract ?? false
-    await persistSession()
+    messages.value  = [{ role: 'assistant', content: data.message }]
+    goalCount.value = data.goals?.length ?? 0
+    persistSession(data.goals)
     await scrollToBottom()
   } catch (e) {
-    error.value = e.message
+    error.value   = e.message
     started.value = false
   } finally {
     loading.value = false
@@ -86,8 +88,8 @@ async function sendMessage() {
       body: JSON.stringify({ messages: messages.value, month: month.value }),
     })
     messages.value.push({ role: 'assistant', content: data.message })
-    readyToExtract.value = data.readyToExtract ?? false
-    await persistSession()
+    goalCount.value = data.goals?.length ?? goalCount.value
+    persistSession(data.goals)
     await scrollToBottom()
   } catch (e) {
     error.value = e.message
@@ -101,20 +103,20 @@ function onKeydown(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
 }
 
-// ── Save goals ────────────────────────────────────────────────────────────────
-async function saveGoals() {
-  saving.value = true
-  error.value  = ''
+// ── Delete plan ───────────────────────────────────────────────────────────────
+async function deletePlan() {
+  if (!confirm(`Delete your ${monthLabel.value} plan and all goals? This cannot be undone.`)) return
+  deleting.value = true
+  error.value    = ''
   try {
-    await apiFetch('/api/planner/extract-goals', {
-      method: 'POST',
-      body: JSON.stringify({ messages: messages.value, month: month.value }),
-    })
-    emit('goToGoals')
+    await apiFetch(`/api/planner/${month.value}`, { method: 'DELETE' })
+    messages.value  = []
+    goalCount.value = 0
+    started.value   = false
   } catch (e) {
     error.value = e.message
   } finally {
-    saving.value = false
+    deleting.value = false
   }
 }
 </script>
@@ -147,12 +149,41 @@ async function saveGoals() {
     <!-- ── Chat ─────────────────────────────────────────────────────────────── -->
     <div v-else class="flex flex-col gap-5">
 
-      <!-- Month label -->
-      <div class="flex items-center gap-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 9v7.5" />
-        </svg>
-        Planning for {{ monthLabel }}
+      <!-- Toolbar: month label + goals pill + delete -->
+      <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 9v7.5" />
+          </svg>
+          Planning for {{ monthLabel }}
+        </div>
+
+        <div class="flex items-center gap-2">
+          <!-- Live goals pill -->
+          <button
+            v-if="goalCount > 0"
+            @click="emit('goToGoals')"
+            class="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition"
+          >
+            <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            {{ goalCount }} {{ goalCount === 1 ? 'goal' : 'goals' }} tracked
+            <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+
+          <!-- Delete plan -->
+          <button
+            @click="deletePlan"
+            :disabled="deleting"
+            class="rounded-xl border border-slate-200/70 bg-white p-1.5 text-slate-400 hover:text-rose-500 hover:border-rose-200 hover:bg-rose-50 transition disabled:opacity-40"
+            title="Delete plan and all goals for this month"
+          >
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <!-- Messages -->
@@ -163,7 +194,6 @@ async function saveGoals() {
           class="flex"
           :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
         >
-          <!-- AI avatar -->
           <div v-if="msg.role === 'assistant'" class="mr-2 mt-1 h-7 w-7 shrink-0 rounded-xl bg-gradient-to-br from-[#0d5f6b] to-[#0a4a54] flex items-center justify-center shadow-sm">
             <span class="text-white text-xs font-bold">W</span>
           </div>
@@ -191,26 +221,8 @@ async function saveGoals() {
       <!-- Error -->
       <p v-if="error" class="text-sm text-rose-500 bg-rose-50 border border-rose-100 rounded-xl px-4 py-2.5">{{ error }}</p>
 
-      <!-- Save goals CTA -->
-      <div
-        v-if="readyToExtract"
-        class="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50/60 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-      >
-        <div>
-          <p class="text-sm font-semibold text-emerald-800">Ready to save your goals</p>
-          <p class="text-xs text-emerald-600 mt-0.5">Your AI coach will turn this conversation into clear monthly goals.</p>
-        </div>
-        <button
-          @click="saveGoals"
-          :disabled="saving"
-          class="shrink-0 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60"
-        >
-          {{ saving ? 'Saving…' : 'Save my goals' }}
-        </button>
-      </div>
-
-      <!-- Input -->
-      <div v-if="!readyToExtract" class="flex gap-2 mt-1">
+      <!-- Input — always visible -->
+      <div class="flex gap-2 mt-1">
         <textarea
           v-model="input"
           @keydown="onKeydown"
