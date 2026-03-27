@@ -1,9 +1,12 @@
 <script setup>
 import { ref, onMounted, computed, nextTick } from 'vue'
 import { useApi } from '../composables/useApi.js'
+import { useSpeech } from '../composables/useSpeech.js'
+import MicButton from './MicButton.vue'
 
 const emit = defineEmits(['goToGoals'])
 const { apiFetch, apiFetchPublic } = useApi()
+const { isSupported: speechSupported, isListening, toggleListening, stopListening } = useSpeech()
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const month      = ref(new Date().toISOString().slice(0, 7))
@@ -21,21 +24,42 @@ const monthLabel = computed(() => {
   return new Date(y, m - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 })
 
-// ── Load existing session on mount ────────────────────────────────────────────
-onMounted(async () => {
+// ── Load session for current month ────────────────────────────────────────────
+async function loadSession() {
   try {
     const [sessionData, goalsData] = await Promise.all([
       apiFetch(`/api/planner/${month.value}`),
       apiFetch(`/api/goals?month=${month.value}`).catch(() => []),
     ])
     if (sessionData?.messages?.length) {
-      messages.value = sessionData.messages
+      messages.value  = sessionData.messages
       goalCount.value = goalsData?.length ?? 0
-      started.value = true
+      started.value   = true
       await scrollToBottom()
+    } else {
+      messages.value  = []
+      goalCount.value = 0
+      started.value   = false
     }
-  } catch { /* no session yet */ }
-})
+  } catch {
+    messages.value  = []
+    goalCount.value = 0
+    started.value   = false
+  }
+}
+
+onMounted(loadSession)
+
+// ── Month navigation ──────────────────────────────────────────────────────────
+async function shiftMonth(delta) {
+  const [y, m] = month.value.split('-').map(Number)
+  const d = new Date(y, m - 1 + delta)
+  month.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  if (isListening.value) stopListening()
+  input.value = ''
+  error.value = ''
+  await loadSession()
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 async function scrollToBottom() {
@@ -43,12 +67,16 @@ async function scrollToBottom() {
   messagesEl.value?.lastElementChild?.scrollIntoView({ behavior: 'smooth' })
 }
 
-// Fire-and-forget — persists messages + latest goals without blocking the UI
 function persistSession(goals) {
   apiFetch('/api/planner/session', {
     method: 'POST',
     body: JSON.stringify({ month: month.value, messages: messages.value, goals }),
   }).catch(() => {})
+}
+
+// ── Speech ────────────────────────────────────────────────────────────────────
+function handleMic() {
+  toggleListening(transcript => { input.value = transcript })
 }
 
 // ── Start planning ────────────────────────────────────────────────────────────
@@ -73,10 +101,11 @@ async function startPlanning() {
   }
 }
 
-// ── Send a message ────────────────────────────────────────────────────────────
+// ── Send message ──────────────────────────────────────────────────────────────
 async function sendMessage() {
   const text = input.value.trim()
   if (!text || loading.value) return
+  if (isListening.value) stopListening()
   input.value = ''
   messages.value.push({ role: 'user', content: text })
   loading.value = true
@@ -126,17 +155,41 @@ async function deletePlan() {
 
     <!-- ── Empty state ──────────────────────────────────────────────────────── -->
     <div v-if="!started" class="flex flex-col items-center justify-center min-h-[62vh] gap-6 text-center">
+
+      <!-- Month picker -->
+      <div class="flex items-center gap-1">
+        <button
+          @click="shiftMonth(-1)"
+          class="rounded-xl border border-slate-200/70 bg-white p-2 hover:bg-slate-50 transition shadow-sm"
+        >
+          <svg class="h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <span class="text-sm font-semibold text-slate-600 min-w-[140px] text-center">{{ monthLabel }}</span>
+        <button
+          @click="shiftMonth(1)"
+          class="rounded-xl border border-slate-200/70 bg-white p-2 hover:bg-slate-50 transition shadow-sm"
+        >
+          <svg class="h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      </div>
+
       <div class="h-20 w-20 rounded-3xl bg-gradient-to-br from-[#0d5f6b]/10 to-[#0a4a54]/5 flex items-center justify-center shadow-inner">
         <svg class="h-10 w-10 text-[#0d5f6b]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" />
         </svg>
       </div>
+
       <div class="space-y-1.5">
         <h2 class="text-2xl font-bold text-slate-800">Plan your {{ monthLabel }}</h2>
         <p class="text-slate-500 text-sm max-w-xs mx-auto leading-relaxed">
           Chat with your AI coach to set clear, meaningful goals for the month ahead.
         </p>
       </div>
+
       <button
         @click="startPlanning"
         :disabled="loading"
@@ -149,13 +202,28 @@ async function deletePlan() {
     <!-- ── Chat ─────────────────────────────────────────────────────────────── -->
     <div v-else class="flex flex-col gap-5">
 
-      <!-- Toolbar: month label + goals pill + delete -->
+      <!-- Toolbar -->
       <div class="flex items-center justify-between gap-3">
-        <div class="flex items-center gap-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 9v7.5" />
-          </svg>
-          Planning for {{ monthLabel }}
+
+        <!-- Month nav -->
+        <div class="flex items-center gap-1">
+          <button
+            @click="shiftMonth(-1)"
+            class="rounded-xl border border-slate-200/70 bg-white p-1.5 hover:bg-slate-50 transition shadow-sm"
+          >
+            <svg class="h-3.5 w-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <span class="text-xs font-semibold text-slate-500 min-w-[110px] text-center">{{ monthLabel }}</span>
+          <button
+            @click="shiftMonth(1)"
+            class="rounded-xl border border-slate-200/70 bg-white p-1.5 hover:bg-slate-50 transition shadow-sm"
+          >
+            <svg class="h-3.5 w-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
         </div>
 
         <div class="flex items-center gap-2">
@@ -176,8 +244,8 @@ async function deletePlan() {
           <button
             @click="deletePlan"
             :disabled="deleting"
-            class="rounded-xl border border-slate-200/70 bg-white p-1.5 text-slate-400 hover:text-rose-500 hover:border-rose-200 hover:bg-rose-50 transition disabled:opacity-40"
             title="Delete plan and all goals for this month"
+            class="rounded-xl border border-slate-200/70 bg-white p-1.5 text-slate-400 hover:text-rose-500 hover:border-rose-200 hover:bg-rose-50 transition disabled:opacity-40"
           >
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
@@ -221,20 +289,26 @@ async function deletePlan() {
       <!-- Error -->
       <p v-if="error" class="text-sm text-rose-500 bg-rose-50 border border-rose-100 rounded-xl px-4 py-2.5">{{ error }}</p>
 
-      <!-- Input — always visible -->
-      <div class="flex gap-2 mt-1">
+      <!-- Input row: mic + textarea + send -->
+      <div class="flex gap-2 mt-1 items-end">
+        <MicButton
+          :listening="isListening"
+          :supported="speechSupported"
+          @click="handleMic"
+        />
         <textarea
           v-model="input"
           @keydown="onKeydown"
           rows="2"
-          placeholder="Type your response… (Enter to send)"
+          :placeholder="isListening ? 'Listening…' : 'Type your response… (Enter to send)'"
           :disabled="loading"
           class="flex-1 resize-none rounded-2xl border border-slate-200/70 bg-white px-4 py-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#0d5f6b]/30 focus:border-[#0d5f6b]/50 disabled:opacity-50 transition placeholder:text-slate-400"
+          :class="isListening ? 'border-[#0d5f6b]/40 ring-2 ring-[#0d5f6b]/20' : ''"
         />
         <button
           @click="sendMessage"
           :disabled="loading || !input.trim()"
-          class="self-end rounded-2xl bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] p-3 text-white shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-40"
+          class="rounded-2xl bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] p-3 text-white shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-40"
         >
           <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
