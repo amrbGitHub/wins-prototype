@@ -118,10 +118,20 @@ async function ollamaChat({ messages, temperature = 0.4, json = false }) {
   return resp.json()
 }
 
-// Helper: extract and parse JSON from model output (strips markdown fences if present)
+// Helper: extract and parse JSON from model output.
+// Handles: markdown fences, prose before/after the JSON object.
 function parseJSON(content) {
-  const cleaned = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
-  return JSON.parse(cleaned)
+  // 1. Strip markdown code fences
+  let cleaned = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
+  // 2. Try the whole cleaned string first (fast path)
+  try { return JSON.parse(cleaned) } catch {}
+  // 3. Find the outermost {...} block — LLMs sometimes prepend/append prose
+  const start = cleaned.indexOf('{')
+  const end   = cleaned.lastIndexOf('}')
+  if (start !== -1 && end > start) {
+    return JSON.parse(cleaned.slice(start, end + 1))
+  }
+  throw new SyntaxError('No JSON object found in model output')
 }
 
 // ── Journal entry CRUD ────────────────────────────────────────────────────────
@@ -559,10 +569,17 @@ Always respond with valid JSON only — no text outside the JSON:
     try {
       parsed = parseJSON(content)
     } catch {
-      parsed = { message: content?.trim() || 'Sorry, I had trouble responding. Please try again.', goals: [] }
+      // Model didn't return JSON at all — strip any trailing JSON blob and use as plain message
+      const fallbackMsg = (content?.trim() || 'Sorry, I had trouble responding. Please try again.')
+        .replace(/\{[\s\S]*\}\s*$/, '').trim()
+      parsed = { message: fallbackMsg, goals: [] }
     }
 
-    res.json({ message: parsed.message || '', goals: Array.isArray(parsed.goals) ? parsed.goals : [] })
+    // Sanitise: strip any accidentally leaked JSON from the message string
+    const cleanMessage = (parsed.message || '')
+      .replace(/\{[\s\S]*\}\s*$/, '').trim()
+
+    res.json({ message: cleanMessage, goals: Array.isArray(parsed.goals) ? parsed.goals : [] })
   } catch (err) {
     res.status(500).send(err.message)
   }
