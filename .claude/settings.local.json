@@ -4,7 +4,10 @@
       "Bash(npm install)",
       "Bash(test -f \"C:\\\\Users\\\\super\\\\Documents\\\\GitHub\\\\wins-prototype/frontend/.env\")",
       "Bash(npm install @supabase/supabase-js jsonwebtoken)",
-      "Bash(npm install @supabase/supabase-js)"
+      "Bash(npm install @supabase/supabase-js)",
+      "WebFetch(domain:voicebox.sh)",
+      "WebSearch",
+      "WebFetch(domain:github.com)"
     ]
   }
 }
