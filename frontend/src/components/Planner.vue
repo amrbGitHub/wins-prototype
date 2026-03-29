@@ -5,7 +5,7 @@ import { useSpeech } from '../composables/useSpeech.js'
 import { useTTS } from '../composables/useTTS.js'
 import MicButton from './MicButton.vue'
 
-const emit = defineEmits(['goToGoals'])
+const emit = defineEmits(['goToGoals', 'startReview'])
 const { apiFetch, apiFetchPublic } = useApi()
 
 // Text-mode STT
@@ -423,6 +423,19 @@ const convoStatusLabel = computed(() => ({
             <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
             {{ goalCount }} {{ goalCount === 1 ? 'goal' : 'goals' }}
             <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+          </button>
+
+          <!-- Weekly review button -->
+          <button
+            v-if="goalCount > 0"
+            @click="emit('startReview', month)"
+            title="Start weekly progress review"
+            class="flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition"
+          >
+            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Review
           </button>
 
           <!-- Delete -->

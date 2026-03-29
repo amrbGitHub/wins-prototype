@@ -77,6 +77,19 @@ function onReflectionSaved() {
   localStorage.setItem(`wins-review-snoozed-${reviewMonth.value}`, new Date().toISOString())
   currentView.value = 'reflections'
 }
+
+async function onStartReview(month) {
+  try {
+    const goals = await apiFetch(`/api/goals?month=${month}`)
+    if (!goals?.length) return
+    reviewGoals.value      = goals
+    reviewMonth.value      = month
+    showReviewBanner.value = false
+    showReviewModal.value  = true
+  } catch {
+    // silently ignore
+  }
+}
 </script>
 
 <template>
@@ -223,7 +236,7 @@ function onReflectionSaved() {
     <!-- Views -->
     <Celebrate   v-if="currentView === 'celebrate'" />
     <Journal     v-else-if="currentView === 'journal'" />
-    <Planner     v-else-if="currentView === 'planner'" @go-to-goals="currentView = 'goals'" />
+    <Planner     v-else-if="currentView === 'planner'" @go-to-goals="currentView = 'goals'" @start-review="onStartReview" />
     <MyGoals     v-else-if="currentView === 'goals'" />
     <Reflections v-else-if="currentView === 'reflections'" />
 
