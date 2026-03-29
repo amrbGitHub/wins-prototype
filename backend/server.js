@@ -525,11 +525,13 @@ app.delete('/api/planner/:month', verifyToken, async (req, res) => {
 // POST /api/planner/chat — stateless AI turn; returns message + live-updated goals
 app.post('/api/planner/chat', async (req, res) => {
   try {
-    const { messages = [], month } = req.body || {}
+    const { messages = [], month, mode = 'text' } = req.body || {}
     const [y, m] = (month || '').split('-')
     const monthLabel = y && m
       ? new Date(parseInt(y), parseInt(m) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
       : 'this month'
+
+    const isConvo = mode === 'convo'
 
     const system = `
 You are a warm, thoughtful planning coach for a workplace trainer (L&D professional).
@@ -546,20 +548,39 @@ Guidelines:
 - Be warm and encouraging — like a trusted coach, not a form
 - Acknowledge what they share before moving on
 - Ask follow-up questions if an answer is vague
-- If this is the opening message (no prior messages), greet them briefly and ask your first question
+- For the opening turn (no prior messages): greet them warmly by name of the month and ask your first question${isConvo ? `
+
+CONVO MODE (voice conversation):
+- Keep each response to 2-3 sentences maximum — short enough to speak aloud naturally
+- No bullet points, numbered lists, or markdown — plain spoken sentences only
+- When you have enough detail to form clear goals (usually after 3-5 exchanges), announce them out loud:
+  e.g. "I've set two goals for you this month. First: [goal title] — [one sentence description]. Second: [goal title] — [one sentence description]. Does that sound right?"
+- After announcing goals, ask if any adjustments are needed` : `
+
+TEXT MODE:
+- When you have enough detail to form clear goals, ask: "Are you ready to distill this into some clear goals for the month?"
+- After the user confirms, write a clear summary with a short paragraph recap followed by a numbered list of 2–4 specific actionable goals
+- End by asking if any adjustments are needed`}
 
 GOAL TRACKING — this is critical:
-After every response, maintain a "goals" array that represents your BEST CURRENT understanding of the user's goals based on everything shared so far.
+After every response, maintain a "goals" array representing your BEST CURRENT understanding of the user's goals.
 - Start with an empty array; add goals as soon as you have enough detail (usually after 2-3 exchanges)
 - Refine and update existing goals as you learn more — do not duplicate
-- Each goal needs: title (max 8 words), description (1-2 sentences), successCriteria (one sentence on how they'll know it's done)
+- Each goal: title (max 8 words), description (1-2 sentences), successCriteria (one sentence on how they'll know it's done)
 
 Always respond with valid JSON only — no text outside the JSON:
 {"message":"your conversational response","goals":[{"title":"...","description":"...","successCriteria":"..."}]}
 `.trim()
 
+    // When there are no prior messages this is the opening turn.
+    // Ollama's JSON mode requires at least one user message to generate a response,
+    // so we inject a silent prompt that the AI will never show to the user.
+    const chatMessages = messages.length === 0
+      ? [{ role: 'user', content: 'Please start the session with your greeting.' }]
+      : messages
+
     const completion = await ollamaChat({
-      messages: [{ role: 'system', content: system }, ...messages],
+      messages: [{ role: 'system', content: system }, ...chatMessages],
       temperature: 0.6,
       json: true,
     })

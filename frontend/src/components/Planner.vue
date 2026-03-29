@@ -111,7 +111,7 @@ function switchMode(newMode) {
 async function callAI(msgList) {
   const data = await apiFetchPublic('/api/planner/chat', {
     method: 'POST',
-    body: JSON.stringify({ messages: msgList, month: month.value }),
+    body: JSON.stringify({ messages: msgList, month: month.value, mode: mode.value }),
   })
   return data
 }
