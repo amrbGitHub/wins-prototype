@@ -52,6 +52,16 @@ async function updateStatus(goal, status) {
     alert('Failed to update: ' + e.message)
   }
 }
+
+async function deleteGoal(goal) {
+  if (!confirm(`Remove "${goal.title}"? This cannot be undone.`)) return
+  try {
+    await apiFetch(`/api/goals/${goal.id}`, { method: 'DELETE' })
+    goals.value = goals.value.filter(g => g.id !== goal.id)
+  } catch (e) {
+    alert('Failed to delete: ' + e.message)
+  }
+}
 </script>
 
 <template>
@@ -142,12 +152,23 @@ async function updateStatus(goal, status) {
                 </div>
               </div>
 
-              <button
-                @click="updateStatus(goal, 'achieved')"
-                class="shrink-0 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition"
-              >
-                Mark achieved
-              </button>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <button
+                  @click="updateStatus(goal, 'achieved')"
+                  class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition"
+                >
+                  Mark achieved
+                </button>
+                <button
+                  @click="deleteGoal(goal)"
+                  title="Remove this goal"
+                  class="rounded-xl border border-slate-200/70 bg-white p-1.5 text-slate-400 hover:text-rose-500 hover:border-rose-200 hover:bg-rose-50 transition"
+                >
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -175,12 +196,23 @@ async function updateStatus(goal, status) {
                 <p v-if="goal.description" class="text-sm text-slate-400 mt-1">{{ goal.description }}</p>
               </div>
 
-              <button
-                @click="updateStatus(goal, 'active')"
-                class="shrink-0 text-xs text-slate-400 hover:text-slate-600 transition px-2 py-1"
-              >
-                Undo
-              </button>
+              <div class="flex items-center gap-1 shrink-0">
+                <button
+                  @click="updateStatus(goal, 'active')"
+                  class="text-xs text-slate-400 hover:text-slate-600 transition px-2 py-1"
+                >
+                  Undo
+                </button>
+                <button
+                  @click="deleteGoal(goal)"
+                  title="Remove this goal"
+                  class="rounded-xl border border-transparent p-1.5 text-slate-300 hover:text-rose-500 hover:border-rose-200 hover:bg-rose-50 transition"
+                >
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
         </div>

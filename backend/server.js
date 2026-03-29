@@ -686,6 +686,21 @@ app.get('/api/goals', verifyToken, async (req, res) => {
   }
 })
 
+// DELETE /api/goals/:id — remove a single goal
+app.delete('/api/goals/:id', verifyToken, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('goals')
+      .delete()
+      .eq('id', req.params.id)
+      .eq('user_id', req.userId)
+    if (error) throw error
+    res.status(204).send()
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // PATCH /api/goals/:id — update goal status
 app.patch('/api/goals/:id', verifyToken, async (req, res) => {
   try {
