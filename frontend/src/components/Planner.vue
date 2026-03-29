@@ -32,6 +32,7 @@ const messagesEl = ref(null)
 const convoStatus     = ref('idle')
 const convoTranscript = ref('')   // live STT transcript shown in UI
 let   convoRecognition = null
+let   _recId           = 0        // incremented on every new/stopped session to invalidate stale onend handlers
 
 const monthLabel = computed(() => {
   const [y, m] = month.value.split('-').map(Number)
@@ -159,6 +160,7 @@ function onKeydown(e) {
 
 // ── CONVO MODE ────────────────────────────────────────────────────────────────
 function stopConvoRecognition() {
+  _recId++   // invalidate any pending onend/onerror from the current session
   if (convoRecognition) {
     try { convoRecognition.abort() } catch {}
     convoRecognition = null
@@ -169,10 +171,11 @@ function startConvoListening() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition
   if (!SR) { error.value = 'Voice input requires Chrome or Edge.'; return }
 
-  stopConvoRecognition()
+  stopConvoRecognition()       // increments _recId, aborts old rec
   convoTranscript.value = ''
   convoStatus.value = 'listening'
 
+  const myId = ++_recId        // this session's unique ID
   const rec = new SR()
   convoRecognition = rec
   rec.continuous      = false   // single utterance — auto-sends on silence
@@ -191,11 +194,16 @@ function startConvoListening() {
   }
 
   rec.onend = async () => {
+    if (myId !== _recId) return  // stale — a newer session already started
     convoRecognition = null
     const text = finalText.trim()
     if (!text) {
-      // Nothing captured — go back to listening if still in convo
-      if (convoStatus.value === 'listening') startConvoListening()
+      // Nothing captured
+      if (convoStatus.value === 'listening') {
+        startConvoListening()    // auto-stopped by browser (silence timeout) — restart
+      } else {
+        convoStatus.value = 'idle'  // manually stopped with nothing said — reset
+      }
       return
     }
     convoTranscript.value = ''
@@ -203,11 +211,8 @@ function startConvoListening() {
   }
 
   rec.onerror = (e) => {
-    if (e.error === 'no-speech') {
-      // timeout with no speech — restart
-      startConvoListening()
-      return
-    }
+    if (myId !== _recId) return  // stale
+    if (e.error === 'no-speech') return  // onend fires right after and handles restart
     convoStatus.value = 'idle'
     error.value = `Mic error: ${e.error}`
   }

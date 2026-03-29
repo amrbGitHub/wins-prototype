@@ -1,38 +1,34 @@
 /**
- * useTTS — neural text-to-speech powered by Kokoro 82M (ONNX, runs entirely in the browser)
+ * useTTS — neural TTS via Kokoro 82M (ONNX, browser-native)
+ * Automatically falls back to Web Speech API if Kokoro fails to load.
  *
- * The ~82 MB model is downloaded from HuggingFace on first use and cached by
- * the browser indefinitely — all subsequent loads are instant.
- *
- * Voice used: af_heart (American Female "Heart" — overall grade A, the highest quality)
- * Other voices: af_bella (A-), bf_emma (B-), am_michael (C+), bm_george (C)
+ * Best Kokoro voices (A-grade): af_heart, af_bella
  */
 
 import { ref } from 'vue'
 
-// ── Module-level singletons (shared across all useTTS() calls) ────────────────
-let   _tts         = null   // loaded KokoroTTS instance
-let   _loadingProm = null   // in-flight promise (prevents parallel double-load)
+// ── Module-level singletons ───────────────────────────────────────────────────
+let   _tts         = null
+let   _loadingProm = null
 let   _audioCtx    = null
-let   _currentSrc  = null   // currently playing AudioBufferSourceNode
+let   _currentSrc  = null
 
-const _isSpeaking    = ref(false)
-const _isLoading     = ref(false)
-const _loadProgress  = ref(0)   // 0–100
+const _isSpeaking   = ref(false)
+const _isLoading    = ref(false)
+const _loadProgress = ref(0)
 
-// ── Text cleanup ──────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function cleanForSpeech(text) {
   return text
-    .replace(/\*\*(.+?)\*\*/g,    '$1')  // bold
-    .replace(/\*(.+?)\*/g,        '$1')  // italic
-    .replace(/`(.+?)`/g,          '$1')  // inline code
-    .replace(/#{1,6}\s/g,         '')    // headings
-    .replace(/\[(.+?)\]\(.+?\)/g, '$1') // links → label only
+    .replace(/\*\*(.+?)\*\*/g,    '$1')
+    .replace(/\*(.+?)\*/g,        '$1')
+    .replace(/`(.+?)`/g,          '$1')
+    .replace(/#{1,6}\s/g,         '')
+    .replace(/\[(.+?)\]\(.+?\)/g, '$1')
     .replace(/\n+/g,              ' ')
     .trim()
 }
 
-// ── AudioContext ──────────────────────────────────────────────────────────────
 function getAudioCtx() {
   if (!_audioCtx || _audioCtx.state === 'closed') {
     _audioCtx = new (window.AudioContext || window.webkitAudioContext)()
@@ -41,10 +37,10 @@ function getAudioCtx() {
   return _audioCtx
 }
 
-// ── Model loading ─────────────────────────────────────────────────────────────
-async function loadModel() {
+// ── Kokoro model loading ──────────────────────────────────────────────────────
+async function loadKokoro() {
   if (_tts) return _tts
-  if (_loadingProm) return _loadingProm   // reuse the in-flight promise
+  if (_loadingProm) return _loadingProm
 
   _loadingProm = (async () => {
     _isLoading.value    = true
@@ -57,9 +53,7 @@ async function loadModel() {
           if (status === 'progress' && typeof progress === 'number') {
             _loadProgress.value = Math.round(progress)
           }
-          if (status === 'done') {
-            _loadProgress.value = 100
-          }
+          if (status === 'done') _loadProgress.value = 100
         },
       })
       return _tts
@@ -72,23 +66,41 @@ async function loadModel() {
   return _loadingProm
 }
 
+// ── Fallback: Web Speech API ──────────────────────────────────────────────────
+function speakFallback(text) {
+  return new Promise((resolve) => {
+    if (!('speechSynthesis' in window)) { resolve(); return }
+    window.speechSynthesis.cancel()
+    const utt   = new SpeechSynthesisUtterance(text)
+    utt.rate    = 1.05
+    utt.pitch   = 1.0
+    // Pick best available voice
+    const voices = window.speechSynthesis.getVoices()
+    const preferred = ['Microsoft Ava Online', 'Microsoft Jenny Online', 'Google US English', 'Samantha']
+    for (const name of preferred) {
+      const v = voices.find(v => v.name.includes(name))
+      if (v) { utt.voice = v; break }
+    }
+    _isSpeaking.value  = true
+    utt.onend  = () => { _isSpeaking.value = false; resolve() }
+    utt.onerror = () => { _isSpeaking.value = false; resolve() }
+    window.speechSynthesis.speak(utt)
+  })
+}
+
 // ── Public composable ─────────────────────────────────────────────────────────
 export function useTTS() {
   const isSupported = typeof window !== 'undefined' &&
     ('AudioContext' in window || 'webkitAudioContext' in window)
 
-  /**
-   * Speak text using Kokoro neural TTS.
-   * Loads the model on first call — progress shown via isLoading / loadProgress.
-   * Returns a Promise that resolves when the audio finishes playing.
-   */
   async function speak(text) {
     if (!isSupported) return
     const clean = cleanForSpeech(text)
     if (!clean) return
 
+    // Try Kokoro; fall back to Web Speech API on any error
     try {
-      const tts   = await loadModel()
+      const tts   = await loadKokoro()
       const audio = await tts.generate(clean, { voice: 'af_heart' })
 
       await new Promise((resolve) => {
@@ -110,17 +122,19 @@ export function useTTS() {
         src.start()
       })
     } catch (err) {
-      console.error('[useTTS] speak error:', err)
-      _isSpeaking.value = false
+      console.warn('[useTTS] Kokoro unavailable, using browser TTS:', err.message)
+      await speakFallback(clean)
     }
   }
 
-  /** Immediately stop any playing audio. */
   function stop() {
+    // Stop Kokoro audio
     if (_currentSrc) {
       try { _currentSrc.stop() } catch { /* already stopped */ }
       _currentSrc = null
     }
+    // Stop fallback Web Speech
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
     _isSpeaking.value = false
   }
 
