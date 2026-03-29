@@ -11,7 +11,7 @@ const { apiFetch, apiFetchPublic } = useApi()
 // Text-mode STT
 const { isSupported: speechSupported, isListening, toggleListening, stopListening } = useSpeech()
 // TTS for Convo mode
-const { isSupported: ttsSupported, isSpeaking, speak, stop: stopSpeaking } = useTTS()
+const { isSupported: ttsSupported, isSpeaking, isLoading: ttsLoading, loadProgress, speak, stop: stopSpeaking } = useTTS()
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 const month      = ref(new Date().toISOString().slice(0, 7))
@@ -508,8 +508,30 @@ const convoStatusLabel = computed(() => ({
           <!-- Orb + status -->
           <div class="flex flex-col items-center gap-4">
 
+            <!-- Model download progress ring (first-time only) -->
+            <div v-if="ttsLoading" class="flex flex-col items-center gap-3">
+              <div class="relative h-24 w-24">
+                <svg class="h-24 w-24 -rotate-90" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="40" fill="none" stroke="#e2e8f0" stroke-width="8" />
+                  <circle
+                    cx="50" cy="50" r="40" fill="none"
+                    stroke="#0d5f6b" stroke-width="8" stroke-linecap="round"
+                    :stroke-dasharray="`${2 * Math.PI * 40}`"
+                    :stroke-dashoffset="`${2 * Math.PI * 40 * (1 - loadProgress / 100)}`"
+                    class="transition-all duration-300"
+                  />
+                </svg>
+                <span class="absolute inset-0 flex items-center justify-center text-sm font-bold text-[#0d5f6b]">
+                  {{ loadProgress }}%
+                </span>
+              </div>
+              <p class="text-sm font-semibold text-slate-600">Downloading voice model…</p>
+              <p class="text-xs text-slate-400 text-center max-w-[200px]">Only happens once · ~82 MB · cached forever after</p>
+            </div>
+
             <!-- Animated orb button -->
             <button
+              v-else
               @click="toggleConvoMic"
               class="relative h-24 w-24 rounded-full focus:outline-none transition-transform duration-200 hover:scale-105 active:scale-95"
               :disabled="convoStatus === 'processing'"
@@ -534,7 +556,6 @@ const convoStatusLabel = computed(() => ({
               />
               <!-- Icon -->
               <span class="absolute inset-0 flex items-center justify-center">
-                <!-- Mic when listening or idle -->
                 <svg
                   v-if="convoStatus !== 'speaking' && convoStatus !== 'processing'"
                   class="h-9 w-9 transition-colors duration-300"
@@ -544,7 +565,6 @@ const convoStatusLabel = computed(() => ({
                   <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
                   <path d="M19 10v2a7 7 0 0 1-14 0v-2H3v2a9 9 0 0 0 8 8.94V23h2v-2.06A9 9 0 0 0 21 12v-2h-2z"/>
                 </svg>
-                <!-- Waveform bars when speaking -->
                 <span v-else-if="convoStatus === 'speaking'" class="flex gap-1 items-end h-8">
                   <span class="w-1.5 rounded-full bg-white animate-bounce" style="height:40%;animation-delay:0ms" />
                   <span class="w-1.5 rounded-full bg-white animate-bounce" style="height:80%;animation-delay:100ms" />
@@ -552,7 +572,6 @@ const convoStatusLabel = computed(() => ({
                   <span class="w-1.5 rounded-full bg-white animate-bounce" style="height:100%;animation-delay:80ms" />
                   <span class="w-1.5 rounded-full bg-white animate-bounce" style="height:50%;animation-delay:160ms" />
                 </span>
-                <!-- Spinner when processing -->
                 <svg v-else class="h-8 w-8 text-slate-400 animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
