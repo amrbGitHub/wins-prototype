@@ -35,23 +35,29 @@ watch(user, async (u) => {
 }, { immediate: true })
 
 async function checkReviewDue() {
+  // Add ?testReview=1 to the URL to bypass all time checks (for testing only)
+  const forceTest    = new URLSearchParams(window.location.search).has('testReview')
   const currentMonth = new Date().toISOString().slice(0, 7)
 
-  // Respect snooze — don't show if dismissed within the last 7 days
-  const snoozed = localStorage.getItem(`wins-review-snoozed-${currentMonth}`)
-  if (snoozed) {
-    const daysSince = (Date.now() - new Date(snoozed).getTime()) / (1000 * 60 * 60 * 24)
-    if (daysSince < 7) return
+  if (!forceTest) {
+    // Respect snooze — don't show if dismissed within the last 7 days
+    const snoozed = localStorage.getItem(`wins-review-snoozed-${currentMonth}`)
+    if (snoozed) {
+      const daysSince = (Date.now() - new Date(snoozed).getTime()) / (1000 * 60 * 60 * 24)
+      if (daysSince < 7) return
+    }
   }
 
   try {
     const goals = await apiFetch(`/api/goals?month=${currentMonth}`)
     if (!goals?.length) return
 
-    // Only prompt if the oldest goal is at least 7 days old
-    const oldestCreated = Math.min(...goals.map(g => g.createdAt))
-    const daysSinceSet  = (Date.now() - oldestCreated) / (1000 * 60 * 60 * 24)
-    if (daysSinceSet < 7) return
+    if (!forceTest) {
+      // Only prompt if the oldest goal is at least 7 days old
+      const oldestCreated = Math.min(...goals.map(g => g.createdAt))
+      const daysSinceSet  = (Date.now() - oldestCreated) / (1000 * 60 * 60 * 24)
+      if (daysSinceSet < 7) return
+    }
 
     reviewGoals.value      = goals
     reviewMonth.value      = currentMonth
