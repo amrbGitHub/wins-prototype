@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useAuth } from './composables/useAuth.js'
 import { useApi }  from './composables/useApi.js'
 import Celebrate   from './components/Celebrate.vue'
@@ -11,9 +11,29 @@ import ReviewModal from './components/ReviewModal.vue'
 import AuthPage    from './components/AuthPage.vue'
 
 const { user, loading, signOut } = useAuth()
-const { apiFetch } = useApi()
+const { apiFetch, apiFetchPublic } = useApi()
 
 const currentView = ref('celebrate')
+
+// ── LLM status indicator ──────────────────────────────────────────────────────
+const llmStatus = ref('unknown') // 'unknown' | 'online' | 'offline'
+let   _statusTimer = null
+
+async function checkLlmStatus() {
+  try {
+    const data = await apiFetchPublic('/api/health')
+    llmStatus.value = data?.ollama === 'online' ? 'online' : 'offline'
+  } catch {
+    llmStatus.value = 'offline'
+  }
+}
+
+onMounted(() => {
+  checkLlmStatus()
+  _statusTimer = setInterval(checkLlmStatus, 30_000)
+})
+
+onUnmounted(() => clearInterval(_statusTimer))
 
 const tabs = [
   { id: 'celebrate',   label: 'Celebrate'   },
@@ -132,7 +152,33 @@ async function onStartReview(month) {
           </div>
           <div>
             <h1 class="text-lg font-bold bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] bg-clip-text text-transparent">Celebrating Wins</h1>
-            <p class="text-sm text-slate-400 -mt-0.5 font-medium">Make training impact visible</p>
+            <div class="flex items-center gap-1.5 mt-0.5">
+              <!-- pulsing dot -->
+              <span class="relative flex h-2 w-2">
+                <span
+                  v-if="llmStatus === 'online'"
+                  class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"
+                />
+                <span
+                  class="relative inline-flex rounded-full h-2 w-2"
+                  :class="{
+                    'bg-emerald-500': llmStatus === 'online',
+                    'bg-rose-500':    llmStatus === 'offline',
+                    'bg-slate-300':   llmStatus === 'unknown',
+                  }"
+                />
+              </span>
+              <span
+                class="text-xs font-medium"
+                :class="{
+                  'text-emerald-600': llmStatus === 'online',
+                  'text-rose-500':    llmStatus === 'offline',
+                  'text-slate-400':   llmStatus === 'unknown',
+                }"
+              >
+                {{ llmStatus === 'online' ? 'LLM Online' : llmStatus === 'offline' ? 'LLM Offline' : 'Checking…' }}
+              </span>
+            </div>
           </div>
         </div>
 

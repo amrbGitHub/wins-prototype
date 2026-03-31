@@ -12,6 +12,7 @@ app.use(cors({
 app.use(express.json({ limit: '1mb' }))
 
 // ── Routes ────────────────────────────────────────────────────────────────────
+app.use('/api/health',      require('./routes/health'))
 app.use('/api/entries',     require('./routes/entries'))
 app.use('/api',             require('./routes/wins'))        // /api/analyze, /api/draft, etc.
 app.use('/api/planner',     require('./routes/planner'))
