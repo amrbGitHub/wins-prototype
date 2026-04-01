@@ -11,7 +11,8 @@
       "Bash(npm show:*)",
       "Bash(npm pack:*)",
       "Bash(cd /tmp)",
-      "Bash(tar -xf kokoro-js-1.2.1.tgz)"
+      "Bash(tar -xf kokoro-js-1.2.1.tgz)",
+      "Bash(dir \"C:\\\\Users\\\\super\\\\Documents\\\\GitHub\\\\wins-prototype\\\\backend\"\")"
     ]
   }
 }
