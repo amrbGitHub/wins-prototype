@@ -342,8 +342,8 @@ onUnmounted(() => clearInterval(_statusTimer))
           <!-- Review due badge -->
           <span
             v-if="tab.id === 'reflections' && showReviewBanner"
-            class="ml-auto flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-[10px] font-bold text-white"
-          >!</span>
+            class="ml-auto h-2 w-2 rounded-full bg-amber-400"
+          />
         </button>
       </nav>
 
@@ -427,45 +427,30 @@ onUnmounted(() => clearInterval(_statusTimer))
       </Transition>
 
       <!-- Page content -->
-      <Transition
-        enter-active-class="transition duration-200 ease-out"
-        enter-from-class="opacity-0 translate-y-1"
-        enter-to-class="opacity-100 translate-y-0"
-        leave-active-class="transition duration-150 ease-in"
-        leave-from-class="opacity-100"
-        leave-to-class="opacity-0"
-        mode="out-in"
-      >
-        <Celebrate
-          v-if="currentView === 'celebrate'"
-          key="celebrate"
-        />
-        <Journal
-          v-else-if="currentView === 'journal'"
-          key="journal"
-        />
-        <Planner
-          v-else-if="currentView === 'planner'"
-          key="planner"
-          :first-name="profile?.firstName || ''"
-          @go-to-goals="navigate('goals')"
-          @start-review="onStartReview"
-        />
-        <MyGoals
-          v-else-if="currentView === 'goals'"
-          :key="'goals-' + myGoalsKey"
-        />
-        <Reflections
-          v-else-if="currentView === 'reflections'"
-          key="reflections"
-        />
-        <UserProfile
-          v-else-if="currentView === 'profile'"
-          key="profile"
-          :profile="profile"
-          @updated="onProfileUpdated"
-        />
-      </Transition>
+      <Celebrate
+        v-if="currentView === 'celebrate'"
+      />
+      <Journal
+        v-else-if="currentView === 'journal'"
+      />
+      <Planner
+        v-else-if="currentView === 'planner'"
+        :first-name="profile?.firstName || ''"
+        @go-to-goals="navigate('goals')"
+        @start-review="onStartReview"
+      />
+      <MyGoals
+        v-else-if="currentView === 'goals'"
+        :key="'goals-' + myGoalsKey"
+      />
+      <Reflections
+        v-else-if="currentView === 'reflections'"
+      />
+      <UserProfile
+        v-else-if="currentView === 'profile'"
+        :profile="profile"
+        @updated="onProfileUpdated"
+      />
     </div>
 
     <!-- ── Modals ─────────────────────────────────────────────────────────── -->
