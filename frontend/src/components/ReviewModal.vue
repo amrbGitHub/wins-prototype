@@ -9,7 +9,7 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'saved', 'goalsUpdated'])
 
-const { apiFetch, apiFetchPublic } = useApi()
+const { apiFetch, apiStreamPublic } = useApi()
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const messages    = ref([])
@@ -27,6 +27,35 @@ const monthLabel = (() => {
   return new Date(y, m - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 })()
 
+// Extract the message value from a partially-streamed JSON blob
+function extractStreamingMessage(partial) {
+  const marker = '"message":"'
+  const start = partial.indexOf(marker)
+  if (start === -1) return null
+  let i = start + marker.length
+  let result = ''
+  while (i < partial.length) {
+    const ch = partial[i]
+    if (ch === '\\') {
+      i++
+      if (i < partial.length) {
+        const esc = partial[i]
+        if (esc === 'n') result += '\n'
+        else if (esc === 't') result += '\t'
+        else if (esc === '"') result += '"'
+        else if (esc === '\\') result += '\\'
+        else result += esc
+        i++
+      }
+      continue
+    }
+    if (ch === '"') break
+    result += ch
+    i++
+  }
+  return result
+}
+
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 onMounted(startReview)
 
@@ -36,21 +65,61 @@ async function scrollToBottom() {
   messagesEl.value?.lastElementChild?.scrollIntoView({ behavior: 'smooth' })
 }
 
-// ── Review chat ───────────────────────────────────────────────────────────────
-async function startReview() {
+// ── Shared streaming helper ───────────────────────────────────────────────────
+async function streamReviewTurn(body) {
   loading.value = true
-  error.value   = ''
+  let accumulated = ''
+  let msgIdx = -1
+
   try {
-    const data = await apiFetchPublic('/api/reflections/chat', {
+    for await (const event of apiStreamPublic('/api/reflections/chat', {
       method: 'POST',
-      body: JSON.stringify({ messages: [], goals: props.goals, month: props.month }),
-    })
-    messages.value = [{ role: 'assistant', content: data.message }]
-    await scrollToBottom()
-  } catch (e) {
-    error.value = e.message
+      body: JSON.stringify(body),
+    })) {
+      if (event.error) throw new Error(event.error)
+
+      if (event.delta) {
+        if (msgIdx === -1) {
+          loading.value = false
+          messages.value.push({ role: 'assistant', content: '' })
+          msgIdx = messages.value.length - 1
+        }
+        accumulated += event.delta
+        const msg = extractStreamingMessage(accumulated)
+        if (msg !== null) {
+          messages.value[msgIdx].content = msg
+          scrollToBottom()
+        }
+      }
+
+      if (event.done) {
+        if (msgIdx !== -1) messages.value[msgIdx].content = event.message
+        await scrollToBottom()
+
+        if (event.progressUpdates?.length) {
+          await applyProgressUpdates(event.progressUpdates)
+        }
+
+        if (event.finished) {
+          done.value        = true
+          evaluation.value  = event.evaluation
+          suggestions.value = event.suggestions
+          await saveReflection()
+        }
+      }
+    }
   } finally {
     loading.value = false
+  }
+}
+
+// ── Review chat ───────────────────────────────────────────────────────────────
+async function startReview() {
+  error.value = ''
+  try {
+    await streamReviewTurn({ messages: [], goals: props.goals, month: props.month })
+  } catch (e) {
+    error.value = e.message
   }
 }
 
@@ -59,33 +128,14 @@ async function sendMessage() {
   if (!text || loading.value || done.value) return
   input.value = ''
   messages.value.push({ role: 'user', content: text })
-  loading.value = true
-  error.value   = ''
+  error.value = ''
   await scrollToBottom()
+  const userMsgIdx = messages.value.length - 1
   try {
-    const data = await apiFetchPublic('/api/reflections/chat', {
-      method: 'POST',
-      body: JSON.stringify({ messages: messages.value, goals: props.goals, month: props.month }),
-    })
-    messages.value.push({ role: 'assistant', content: data.message })
-    await scrollToBottom()
-
-    // Apply any progress updates the AI inferred from this message
-    if (data.progressUpdates?.length) {
-      await applyProgressUpdates(data.progressUpdates)
-    }
-
-    if (data.done) {
-      done.value        = true
-      evaluation.value  = data.evaluation
-      suggestions.value = data.suggestions
-      await saveReflection()
-    }
+    await streamReviewTurn({ messages: messages.value, goals: props.goals, month: props.month })
   } catch (e) {
     error.value = e.message
-    messages.value.pop()
-  } finally {
-    loading.value = false
+    messages.value.splice(userMsgIdx)
   }
 }
 

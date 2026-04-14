@@ -1,7 +1,7 @@
 const { Router } = require('express')
 const { supabase } = require('../config')
 const { verifyToken } = require('../middleware/auth')
-const { ollamaChatStream, getContent, parseChatResponse } = require('../lib/ollama')
+const { ollamaChatStream, parseChatResponse } = require('../lib/ollama')
 const { toMonthLabel } = require('../lib/shapes')
 
 const router = Router()

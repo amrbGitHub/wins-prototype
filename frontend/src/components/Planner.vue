@@ -144,28 +144,64 @@ function switchMode(newMode) {
   convoTranscript.value = ''
 }
 
-// ── AI call (shared by both modes) ───────────────────────────────────────────
+// ── AI call — streams response, pushes directly into messages ────────────────
 async function callAI(msgList) {
-  const data = await apiFetchPublic('/api/planner/chat', {
-    method: 'POST',
-    body: JSON.stringify({
-      messages:  msgList,
-      month:     month.value,
-      mode:      mode.value,
-      firstName: props.firstName,
-    }),
-  })
-  return data
+  // Show typing indicator until first chunk arrives
+  loading.value = true
+
+  let accumulated = ''
+  let msgIdx = -1
+  const result = { message: '', goals: [] }
+
+  try {
+    for await (const event of apiStreamPublic('/api/planner/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        messages:     msgList,
+        month:        month.value,
+        mode:         mode.value,
+        firstName:    props.firstName,
+        priorContext: priorContext.value,
+      }),
+    })) {
+      if (event.error) throw new Error(event.error)
+
+      if (event.delta) {
+        // First chunk: swap typing dots for a live message bubble
+        if (msgIdx === -1) {
+          loading.value = false
+          messages.value.push({ role: 'assistant', content: '' })
+          msgIdx = messages.value.length - 1
+        }
+        accumulated += event.delta
+        const msg = extractStreamingMessage(accumulated)
+        if (msg !== null) {
+          messages.value[msgIdx].content = msg
+          scrollToBottom()
+        }
+      }
+
+      if (event.done) {
+        // Finalise with the fully-parsed message
+        if (msgIdx !== -1) messages.value[msgIdx].content = event.message
+        result.message = event.message
+        result.goals   = event.goals || []
+      }
+    }
+  } finally {
+    loading.value = false
+  }
+
+  return result
 }
 
 // ── Start planning (empty state) ──────────────────────────────────────────────
 async function startPlanning() {
   started.value = true
-  loading.value = true
-  error.value   = ''
+  messages.value = []
+  error.value    = ''
   try {
     const data = await callAI([])
-    messages.value  = [{ role: 'assistant', content: data.message }]
     goalCount.value = data.goals?.length ?? 0
     persistSession(data.goals)
     if (convoMode.value) {
@@ -177,9 +213,8 @@ async function startPlanning() {
   } catch (e) {
     error.value   = e.message
     started.value = false
+    messages.value = []
     convoStatus.value = 'idle'
-  } finally {
-    loading.value = false
   }
 }
 
@@ -299,16 +334,16 @@ async function sendConvoMessage(text) {
   messages.value.push({ role: 'user', content: text })
   convoStatus.value = 'processing'
   error.value = ''
+  const userMsgIdx = messages.value.length - 1
   try {
     const data = await callAI(messages.value)
-    messages.value.push({ role: 'assistant', content: data.message })
     goalCount.value = data.goals?.length ?? goalCount.value
     persistSession(data.goals)
     await speakAI(data.message)
     if (started.value) startConvoListening()
   } catch (e) {
     error.value = e.message
-    messages.value.pop()
+    messages.value.splice(userMsgIdx)
     convoStatus.value = 'idle'
   }
 }
@@ -341,20 +376,18 @@ function endConvo() {
 // ── Shared send (text mode) ───────────────────────────────────────────────────
 async function sendMessage(text) {
   messages.value.push({ role: 'user', content: text })
-  loading.value = true
-  error.value   = ''
+  error.value = ''
   await scrollToBottom()
+  const userMsgIdx = messages.value.length - 1
   try {
     const data = await callAI(messages.value)
-    messages.value.push({ role: 'assistant', content: data.message })
     goalCount.value = data.goals?.length ?? goalCount.value
     persistSession(data.goals)
     await scrollToBottom()
   } catch (e) {
     error.value = e.message
-    messages.value.pop()
-  } finally {
-    loading.value = false
+    // Remove user message and any empty streaming placeholder
+    messages.value.splice(userMsgIdx)
   }
 }
 
