@@ -10,7 +10,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['goToGoals', 'startReview'])
-const { apiFetch, apiFetchPublic } = useApi()
+const { apiFetch, apiStreamPublic } = useApi()
 
 // Text-mode STT
 const { isSupported: speechSupported, isListening, toggleListening, stopListening } = useSpeech()
@@ -18,14 +18,15 @@ const { isSupported: speechSupported, isListening, toggleListening, stopListenin
 const { isSupported: ttsSupported, isSpeaking, isLoading: ttsLoading, loadProgress, speak, stop: stopSpeaking } = useTTS()
 
 // ── Shared state ──────────────────────────────────────────────────────────────
-const month      = ref(new Date().toISOString().slice(0, 7))
-const messages   = ref([])
-const loading    = ref(false)
-const deleting   = ref(false)
-const goalCount  = ref(0)
-const started    = ref(false)
-const error      = ref('')
-const mode       = ref('text')   // 'text' | 'convo'
+const month        = ref(new Date().toISOString().slice(0, 7))
+const messages     = ref([])
+const loading      = ref(false)   // true = typing indicator showing
+const deleting     = ref(false)
+const goalCount    = ref(0)
+const started      = ref(false)
+const error        = ref('')
+const mode         = ref('text')   // 'text' | 'convo'
+const priorContext = ref('')       // evaluation text from last reflection
 
 // Text mode
 const input      = ref('')
@@ -48,10 +49,21 @@ const convoMode = computed(() => mode.value === 'convo')
 // ── Session loading ───────────────────────────────────────────────────────────
 async function loadSession() {
   try {
-    const [sessionData, goalsData] = await Promise.all([
+    const [sessionData, goalsData, reflectionData] = await Promise.all([
       apiFetch(`/api/planner/${month.value}`),
       apiFetch(`/api/goals?month=${month.value}`).catch(() => []),
+      apiFetch('/api/reflections').catch(() => []),
     ])
+    // Use the most recent reflection's evaluation as prior context
+    if (Array.isArray(reflectionData) && reflectionData.length) {
+      const last = reflectionData[0]
+      const parts = []
+      if (last.evaluation) parts.push(last.evaluation)
+      if (Array.isArray(last.suggestions) && last.suggestions.length) {
+        parts.push('Suggestions from last review: ' + last.suggestions.join('; '))
+      }
+      priorContext.value = parts.join('\n\n')
+    }
     if (sessionData?.messages?.length) {
       messages.value  = sessionData.messages
       goalCount.value = goalsData?.length ?? 0
@@ -73,9 +85,43 @@ onMounted(loadSession)
 onUnmounted(() => { stopAll() })
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+let _scrollPending = false
 async function scrollToBottom() {
+  if (_scrollPending) return
+  _scrollPending = true
   await nextTick()
   messagesEl.value?.lastElementChild?.scrollIntoView({ behavior: 'smooth' })
+  _scrollPending = false
+}
+
+// Extract the message string from a partially-streamed JSON blob.
+// The model outputs {"message":"...","goals":[...]} — we pull out just the message value.
+function extractStreamingMessage(partial) {
+  const marker = '"message":"'
+  const start = partial.indexOf(marker)
+  if (start === -1) return null
+  let i = start + marker.length
+  let result = ''
+  while (i < partial.length) {
+    const ch = partial[i]
+    if (ch === '\\') {
+      i++
+      if (i < partial.length) {
+        const esc = partial[i]
+        if (esc === 'n') result += '\n'
+        else if (esc === 't') result += '\t'
+        else if (esc === '"') result += '"'
+        else if (esc === '\\') result += '\\'
+        else result += esc
+        i++
+      }
+      continue
+    }
+    if (ch === '"') break
+    result += ch
+    i++
+  }
+  return result
 }
 
 function persistSession(goals) {

@@ -1,7 +1,7 @@
 const { Router } = require('express')
 const { supabase } = require('../config')
 const { verifyToken } = require('../middleware/auth')
-const { ollamaChat, getContent, parseJSON, parseChatResponse, sanitiseMessage } = require('../lib/ollama')
+const { ollamaChat, ollamaChatStream, getContent, parseJSON, parseChatResponse, sanitiseMessage } = require('../lib/ollama')
 const { dbGoalToShape, toMonthLabel, replaceGoals } = require('../lib/shapes')
 
 const router = Router()
@@ -61,15 +61,15 @@ router.delete('/:month', verifyToken, async (req, res) => {
   }
 })
 
-// ── POST /api/planner/chat — stateless AI planning turn ───────────────────────
+// ── POST /api/planner/chat — stateless AI planning turn (SSE streaming) ───────
 router.post('/chat', async (req, res) => {
   try {
-    const { messages = [], month, mode = 'text', firstName = '' } = req.body || {}
+    const { messages = [], month, mode = 'text', firstName = '', priorContext = '' } = req.body || {}
     const monthLabel  = toMonthLabel(month)
     const isConvo     = mode === 'convo'
     const nameGreet   = firstName ? `, ${firstName}` : ''
 
-    const system = `
+    let system = `
 You are a warm, thoughtful planning coach for a workplace trainer (L&D professional).
 Help them clarify their professional goals for ${monthLabel} through natural conversation.
 
@@ -108,24 +108,51 @@ Always respond with valid JSON only — no text outside the JSON:
 {"message":"your conversational response","goals":[{"title":"...","description":"...","successCriteria":"...","targetDate":"YYYY-MM-DD"}]}
 `.trim()
 
+    // Inject prior month context when available — makes coaching feel continuous
+    if (priorContext) {
+      system += `\n\nCONTEXT FROM THE PREVIOUS MONTH:\n${priorContext}\n\nUse this to give more personalised coaching — reference past progress or challenges when relevant, especially in your opening greeting.`
+    }
+
     const chatMessages = messages.length === 0
       ? [{ role: 'user', content: 'Please start the session with your greeting.' }]
       : messages
 
-    const completion = await ollamaChat({
-      messages: [{ role: 'system', content: system }, ...chatMessages],
-      temperature: 0.6,
-      json: true,
-    })
+    // ── SSE streaming response ────────────────────────────────────────────────
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    res.flushHeaders()
 
-    const parsed = parseChatResponse(getContent(completion), { goals: [] })
+    let fullContent = ''
+    try {
+      for await (const delta of ollamaChatStream({
+        messages: [{ role: 'system', content: system }, ...chatMessages],
+        temperature: 0.6,
+        json: true,
+      })) {
+        fullContent += delta
+        res.write(`data: ${JSON.stringify({ delta })}\n\n`)
+      }
+    } catch (streamErr) {
+      res.write(`data: ${JSON.stringify({ error: streamErr.message })}\n\n`)
+      res.end()
+      return
+    }
 
-    res.json({
+    const parsed = parseChatResponse(fullContent, { goals: [] })
+    res.write(`data: ${JSON.stringify({
+      done:    true,
       message: parsed.message,
       goals:   Array.isArray(parsed.goals) ? parsed.goals : [],
-    })
+    })}\n\n`)
+    res.end()
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message })
+    } else {
+      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`)
+      res.end()
+    }
   }
 })
 

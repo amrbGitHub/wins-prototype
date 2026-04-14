@@ -1,7 +1,7 @@
 const { Router } = require('express')
 const { supabase } = require('../config')
 const { verifyToken } = require('../middleware/auth')
-const { ollamaChat, getContent, parseChatResponse } = require('../lib/ollama')
+const { ollamaChatStream, getContent, parseChatResponse } = require('../lib/ollama')
 const { toMonthLabel } = require('../lib/shapes')
 
 const router = Router()
@@ -65,25 +65,47 @@ When done:
       ? [{ role: 'user', content: 'Please start the weekly progress review.' }]
       : messages
 
-    const completion = await ollamaChat({
-      messages: [{ role: 'system', content: system }, ...chatMessages],
-      temperature: 0.6,
-      json: true,
-    })
+    // ── SSE streaming response ────────────────────────────────────────────────
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    res.flushHeaders()
 
-    const parsed = parseChatResponse(getContent(completion), {
+    let fullContent = ''
+    try {
+      for await (const delta of ollamaChatStream({
+        messages: [{ role: 'system', content: system }, ...chatMessages],
+        temperature: 0.6,
+        json: true,
+      })) {
+        fullContent += delta
+        res.write(`data: ${JSON.stringify({ delta })}\n\n`)
+      }
+    } catch (streamErr) {
+      res.write(`data: ${JSON.stringify({ error: streamErr.message })}\n\n`)
+      res.end()
+      return
+    }
+
+    const parsed = parseChatResponse(fullContent, {
       done: false, evaluation: '', suggestions: [], progressUpdates: [],
     })
-
-    res.json({
+    res.write(`data: ${JSON.stringify({
+      done:            true,
       message:         parsed.message,
-      done:            !!parsed.done,
+      finished:        !!parsed.done,
       evaluation:      parsed.evaluation  || '',
       suggestions:     Array.isArray(parsed.suggestions)     ? parsed.suggestions     : [],
       progressUpdates: Array.isArray(parsed.progressUpdates) ? parsed.progressUpdates : [],
-    })
+    })}\n\n`)
+    res.end()
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message })
+    } else {
+      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`)
+      res.end()
+    }
   }
 })
 

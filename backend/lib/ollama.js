@@ -66,4 +66,54 @@ function parseChatResponse(content, defaults = {}) {
   }
 }
 
-module.exports = { ollamaChat, getContent, parseJSON, sanitiseMessage, parseChatResponse }
+// ── Streaming chat call — async generator that yields delta strings ───────────
+async function* ollamaChatStream({ messages, temperature = 0.4, json = false }) {
+  const body = { model: OLLAMA_MODEL, messages, temperature, stream: true }
+  if (json) body.format = 'json'
+
+  let resp
+  try {
+    resp = await fetch(`${OLLAMA_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+      },
+      body: JSON.stringify(body),
+    })
+  } catch (err) {
+    const cause = err.cause?.message ?? err.cause ?? ''
+    throw new Error(
+      `Ollama unreachable at ${OLLAMA_BASE_URL}: ${err.message}${cause ? ` (${cause})` : ''}`
+    )
+  }
+
+  if (!resp.ok) {
+    const text = await resp.text()
+    throw new Error(`Ollama error ${resp.status} at ${OLLAMA_BASE_URL}/chat/completions: ${text}`)
+  }
+
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      const data = line.slice(6).trim()
+      if (data === '[DONE]') return
+      try {
+        const chunk = JSON.parse(data)
+        const delta = chunk.choices?.[0]?.delta?.content
+        if (delta) yield delta
+      } catch {}
+    }
+  }
+}
+
+module.exports = { ollamaChat, ollamaChatStream, getContent, parseJSON, sanitiseMessage, parseChatResponse }
