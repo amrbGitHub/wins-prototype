@@ -5,6 +5,10 @@ import { useSpeech } from '../composables/useSpeech.js'
 import { useTTS } from '../composables/useTTS.js'
 import MicButton from './MicButton.vue'
 
+const props = defineProps({
+  firstName: { type: String, default: '' },
+})
+
 const emit = defineEmits(['goToGoals', 'startReview'])
 const { apiFetch, apiFetchPublic } = useApi()
 
@@ -27,12 +31,12 @@ const mode       = ref('text')   // 'text' | 'convo'
 const input      = ref('')
 const messagesEl = ref(null)
 
-// Convo mode
-// 'idle' | 'listening' | 'processing' | 'speaking'
+// Convo mode — 'idle' | 'listening' | 'processing' | 'speaking'
 const convoStatus     = ref('idle')
-const convoTranscript = ref('')   // live STT transcript shown in UI
+const convoTranscript = ref('')
 let   convoRecognition = null
-let   _recId           = 0        // incremented on every new/stopped session to invalidate stale onend handlers
+let   _recId           = 0     // incremented on hard-abort to invalidate stale onend handlers
+let   _silenceTimer    = null  // fires rec.stop() after 1500ms of no new final results
 
 const monthLabel = computed(() => {
   const [y, m] = month.value.split('-').map(Number)
@@ -68,19 +72,6 @@ async function loadSession() {
 onMounted(loadSession)
 onUnmounted(() => { stopAll() })
 
-// ── Month navigation ──────────────────────────────────────────────────────────
-async function shiftMonth(delta) {
-  const [y, m] = month.value.split('-').map(Number)
-  const d = new Date(y, m - 1 + delta)
-  month.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-  stopAll()
-  input.value        = ''
-  error.value        = ''
-  convoTranscript.value = ''
-  convoStatus.value  = 'idle'
-  await loadSession()
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 async function scrollToBottom() {
   await nextTick()
@@ -97,7 +88,7 @@ function persistSession(goals) {
 function stopAll() {
   if (isListening.value) stopListening()
   stopSpeaking()
-  stopConvoRecognition()
+  stopConvoRecognition(false)  // hard abort
 }
 
 function switchMode(newMode) {
@@ -111,7 +102,12 @@ function switchMode(newMode) {
 async function callAI(msgList) {
   const data = await apiFetchPublic('/api/planner/chat', {
     method: 'POST',
-    body: JSON.stringify({ messages: msgList, month: month.value, mode: mode.value }),
+    body: JSON.stringify({
+      messages:  msgList,
+      month:     month.value,
+      mode:      mode.value,
+      firstName: props.firstName,
+    }),
   })
   return data
 }
@@ -159,11 +155,34 @@ function onKeydown(e) {
 }
 
 // ── CONVO MODE ────────────────────────────────────────────────────────────────
-function stopConvoRecognition() {
-  _recId++   // invalidate any pending onend/onerror from the current session
+
+// Clear the silence debounce timer without touching the recognition session
+function clearSilenceTimer() {
+  if (_silenceTimer) { clearTimeout(_silenceTimer); _silenceTimer = null }
+}
+
+// Arm (or re-arm) the 1500ms silence timer that gracefully stops recognition
+// once the user pauses speaking.  Every new final result resets the clock.
+function armSilenceTimer(rec) {
+  clearSilenceTimer()
+  _silenceTimer = setTimeout(() => {
+    _silenceTimer = null
+    try { rec.stop() } catch {}  // triggers onend → sends accumulated text
+  }, 1500)
+}
+
+/**
+ * @param {boolean} graceful
+ *   true  → rec.stop()  — finalises audio; onend still fires and sends text
+ *   false → rec.abort() — discards audio;  increments _recId to block onend
+ */
+function stopConvoRecognition(graceful = false) {
+  clearSilenceTimer()
+  if (!graceful) _recId++
   if (convoRecognition) {
-    try { convoRecognition.abort() } catch {}
-    convoRecognition = null
+    try { graceful ? convoRecognition.stop() : convoRecognition.abort() } catch {}
+    if (!graceful) convoRecognition = null
+    // For graceful stop, let onend null out convoRecognition after processing
   }
 }
 
@@ -171,38 +190,48 @@ function startConvoListening() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition
   if (!SR) { error.value = 'Voice input requires Chrome or Edge.'; return }
 
-  stopConvoRecognition()       // increments _recId, aborts old rec
+  stopConvoRecognition(false)   // hard-abort any previous session
   convoTranscript.value = ''
   convoStatus.value = 'listening'
 
-  const myId = ++_recId        // this session's unique ID
-  const rec = new SR()
+  const myId = ++_recId         // snapshot this session's ID
+  const rec  = new SR()
   convoRecognition = rec
-  rec.continuous      = false   // single utterance — auto-sends on silence
-  rec.interimResults  = true
-  rec.lang            = 'en-US'
+
+  // continuous + interimResults: don't cut off on short pauses.
+  // The silence debounce (1500 ms after last final result) sends the message.
+  rec.continuous     = true
+  rec.interimResults = true
+  rec.lang           = 'en-US'
 
   let finalText = ''
 
   rec.onresult = (event) => {
     let interim = ''
     for (let i = event.resultIndex; i < event.results.length; i++) {
-      if (event.results[i].isFinal) finalText += event.results[i][0].transcript + ' '
-      else interim += event.results[i][0].transcript
+      if (event.results[i].isFinal) {
+        finalText += event.results[i][0].transcript + ' '
+        armSilenceTimer(rec)    // reset 1500ms window on every final chunk
+      } else {
+        interim += event.results[i][0].transcript
+      }
     }
     convoTranscript.value = (finalText + interim).trimEnd()
   }
 
   rec.onend = async () => {
-    if (myId !== _recId) return  // stale — a newer session already started
+    clearSilenceTimer()
+    if (myId !== _recId) return   // hard-aborted by a newer session — ignore
     convoRecognition = null
     const text = finalText.trim()
     if (!text) {
-      // Nothing captured
+      // Nothing captured — decide whether to restart or go idle
       if (convoStatus.value === 'listening') {
-        startConvoListening()    // auto-stopped by browser (silence timeout) — restart
+        // Browser ended on its own (network glitch / no-speech) — restart
+        startConvoListening()
       } else {
-        convoStatus.value = 'idle'  // manually stopped with nothing said — reset
+        // Manually stopped with nothing said — back to idle
+        convoStatus.value = 'idle'
       }
       return
     }
@@ -211,8 +240,8 @@ function startConvoListening() {
   }
 
   rec.onerror = (e) => {
-    if (myId !== _recId) return  // stale
-    if (e.error === 'no-speech') return  // onend fires right after and handles restart
+    if (myId !== _recId) return
+    if (e.error === 'no-speech') return   // onend fires next and handles restart
     convoStatus.value = 'idle'
     error.value = `Mic error: ${e.error}`
   }
@@ -229,7 +258,6 @@ async function sendConvoMessage(text) {
     messages.value.push({ role: 'assistant', content: data.message })
     goalCount.value = data.goals?.length ?? goalCount.value
     persistSession(data.goals)
-    // Speak the response, then auto-restart listening
     await speakAI(data.message)
     if (started.value) startConvoListening()
   } catch (e) {
@@ -247,8 +275,8 @@ async function speakAI(text) {
 
 function toggleConvoMic() {
   if (convoStatus.value === 'listening') {
-    // Manually stop → fires rec.onend which will auto-send
-    stopConvoRecognition()
+    // Graceful stop → onend fires → sends whatever was captured
+    stopConvoRecognition(true)
     convoStatus.value = 'processing'
   } else if (convoStatus.value === 'idle') {
     startConvoListening()
@@ -264,7 +292,7 @@ function endConvo() {
   convoTranscript.value = ''
 }
 
-// ── Shared send (used by text mode) ──────────────────────────────────────────
+// ── Shared send (text mode) ───────────────────────────────────────────────────
 async function sendMessage(text) {
   messages.value.push({ role: 'user', content: text })
   loading.value = true
@@ -318,17 +346,6 @@ const convoStatusLabel = computed(() => ({
 
     <!-- ── Empty state ──────────────────────────────────────────────────────── -->
     <div v-if="!started" class="flex flex-col items-center justify-center min-h-[62vh] gap-6 text-center">
-
-      <!-- Month picker -->
-      <div class="flex items-center gap-1">
-        <button @click="shiftMonth(-1)" class="rounded-xl border border-slate-200/70 bg-white p-2 hover:bg-slate-50 transition shadow-sm">
-          <svg class="h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
-        </button>
-        <span class="text-sm font-semibold text-slate-600 min-w-[140px] text-center">{{ monthLabel }}</span>
-        <button @click="shiftMonth(1)" class="rounded-xl border border-slate-200/70 bg-white p-2 hover:bg-slate-50 transition shadow-sm">
-          <svg class="h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
-        </button>
-      </div>
 
       <div class="h-20 w-20 rounded-3xl bg-gradient-to-br from-[#0d5f6b]/10 to-[#0a4a54]/5 flex items-center justify-center shadow-inner">
         <svg class="h-10 w-10 text-[#0d5f6b]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -387,16 +404,8 @@ const convoStatusLabel = computed(() => ({
 
       <!-- Toolbar -->
       <div class="flex items-center justify-between gap-3">
-        <!-- Month nav -->
-        <div class="flex items-center gap-1">
-          <button @click="shiftMonth(-1)" class="rounded-xl border border-slate-200/70 bg-white p-1.5 hover:bg-slate-50 transition shadow-sm">
-            <svg class="h-3.5 w-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
-          </button>
-          <span class="text-xs font-semibold text-slate-500 min-w-[110px] text-center">{{ monthLabel }}</span>
-          <button @click="shiftMonth(1)" class="rounded-xl border border-slate-200/70 bg-white p-1.5 hover:bg-slate-50 transition shadow-sm">
-            <svg class="h-3.5 w-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
-          </button>
-        </div>
+        <!-- Month label (no navigation — always current month) -->
+        <span class="text-sm font-semibold text-slate-600">{{ monthLabel }}</span>
 
         <div class="flex items-center gap-2">
           <!-- Mode toggle -->
@@ -515,7 +524,7 @@ const convoStatusLabel = computed(() => ({
       <template v-else>
         <div class="flex flex-col items-center gap-8 py-6">
 
-          <!-- Last AI message (shown while speaking or idle) -->
+          <!-- Last AI message -->
           <div
             v-if="messages.length"
             class="w-full rounded-2xl border border-slate-200/70 bg-white px-5 py-4 shadow-sm text-sm text-slate-700 leading-relaxed text-center max-w-md"
@@ -606,8 +615,8 @@ const convoStatusLabel = computed(() => ({
             </p>
 
             <!-- Hint text when idle -->
-            <p v-if="convoStatus === 'idle'" class="text-xs text-slate-400 text-center max-w-[200px] leading-relaxed">
-              Tap the mic to speak — it will auto-send when you pause
+            <p v-if="convoStatus === 'idle'" class="text-xs text-slate-400 text-center max-w-[220px] leading-relaxed">
+              Tap the mic to speak — sends automatically after you pause
             </p>
           </div>
 

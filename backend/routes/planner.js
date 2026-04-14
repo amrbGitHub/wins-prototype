@@ -64,9 +64,10 @@ router.delete('/:month', verifyToken, async (req, res) => {
 // ── POST /api/planner/chat — stateless AI planning turn ───────────────────────
 router.post('/chat', async (req, res) => {
   try {
-    const { messages = [], month, mode = 'text' } = req.body || {}
-    const monthLabel = toMonthLabel(month)
-    const isConvo    = mode === 'convo'
+    const { messages = [], month, mode = 'text', firstName = '' } = req.body || {}
+    const monthLabel  = toMonthLabel(month)
+    const isConvo     = mode === 'convo'
+    const nameGreet   = firstName ? `, ${firstName}` : ''
 
     const system = `
 You are a warm, thoughtful planning coach for a workplace trainer (L&D professional).
@@ -83,7 +84,7 @@ Guidelines:
 - Be warm and encouraging — like a trusted coach, not a form
 - Acknowledge what they share before moving on
 - Ask follow-up questions if an answer is vague
-- For the opening turn (no prior messages): greet them warmly by name of the month and ask your first question${isConvo ? `
+- For the opening turn (no prior messages): greet them warmly by name (use "${nameGreet ? firstName : 'their name'}" if known) and ask your first question${isConvo ? `
 
 CONVO MODE (voice conversation):
 - Keep each response to 2-3 sentences maximum — short enough to speak aloud naturally
@@ -101,10 +102,10 @@ GOAL TRACKING — this is critical:
 After every response, maintain a "goals" array representing your BEST CURRENT understanding of the user's goals.
 - Start with an empty array; add goals as soon as you have enough detail (usually after 2-3 exchanges)
 - Refine and update existing goals as you learn more — do not duplicate
-- Each goal: title (max 8 words), description (1-2 sentences), successCriteria (one sentence on how they'll know it's done)
+- Each goal: title (max 8 words), description (1-2 sentences), successCriteria (one sentence on how they'll know it's done), targetDate (optional ISO date YYYY-MM-DD if the user mentioned a deadline, otherwise omit)
 
 Always respond with valid JSON only — no text outside the JSON:
-{"message":"your conversational response","goals":[{"title":"...","description":"...","successCriteria":"..."}]}
+{"message":"your conversational response","goals":[{"title":"...","description":"...","successCriteria":"...","targetDate":"YYYY-MM-DD"}]}
 `.trim()
 
     const chatMessages = messages.length === 0

@@ -18,6 +18,7 @@ app.use('/api',             require('./routes/wins'))        // /api/analyze, /a
 app.use('/api/planner',     require('./routes/planner'))
 app.use('/api/goals',       require('./routes/goals'))
 app.use('/api/reflections', require('./routes/reflections'))
+app.use('/api/profile',     require('./routes/profile'))
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {

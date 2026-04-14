@@ -10,6 +10,9 @@ function dbGoalToShape(row) {
     description:     row.description,
     successCriteria: row.success_criteria,
     status:          row.status,
+    targetDate:      row.target_date   || null,
+    steps:           Array.isArray(row.steps) ? row.steps : [],
+    progress:        row.progress      ?? 0,
     createdAt:       new Date(row.created_at).getTime(),
   }
 }
@@ -36,21 +39,41 @@ function toMonthLabel(monthStr) {
     : 'this month'
 }
 
-// Replace all goals for a given user+month atomically (delete then insert).
-// Returns the inserted rows mapped to frontend shape, or throws on error.
+// Replace all goals for a given user+month atomically.
+// Preserves manually-set metadata (targetDate, steps, progress, status) for goals
+// whose title matches an existing goal — so reopening the planner never wipes progress.
 async function replaceGoals(userId, month, goals) {
+  // Fetch existing goals so we can carry forward their metadata
+  const { data: existing } = await supabase
+    .from('goals')
+    .select('title, target_date, steps, progress, status')
+    .eq('user_id', userId)
+    .eq('month', month)
+
+  const prev = {}
+  for (const g of existing || []) prev[g.title] = g
+
   await supabase.from('goals').delete().eq('user_id', userId).eq('month', month)
+
   const { data, error } = await supabase
     .from('goals')
-    .insert(goals.map(g => ({
-      user_id:          userId,
-      month,
-      title:            g.title,
-      description:      g.description,
-      success_criteria: g.successCriteria,
-      status:           'active',
-    })))
+    .insert(goals.map(g => {
+      const old = prev[g.title] || {}
+      return {
+        user_id:          userId,
+        month,
+        title:            g.title,
+        description:      g.description,
+        success_criteria: g.successCriteria,
+        // Preserve existing status (e.g. 'achieved') — never downgrade to 'active'
+        status:           old.status || 'active',
+        target_date:      g.targetDate || old.target_date || null,
+        steps:            g.steps     || old.steps        || [],
+        progress:         old.progress ?? 0,
+      }
+    }))
     .select()
+
   if (error) throw error
   return data.map(dbGoalToShape)
 }
