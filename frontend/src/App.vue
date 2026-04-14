@@ -181,6 +181,16 @@ function onReflectionSaved() {
   currentView.value = 'reflections'
 }
 
+// Re-fetch reviewGoals and bump key so MyGoals reloads if it's open
+const myGoalsKey = ref(0)
+
+async function onGoalsUpdated() {
+  myGoalsKey.value++
+  try {
+    reviewGoals.value = await apiFetch(`/api/goals?month=${reviewMonth.value}`)
+  } catch { /* non-critical */ }
+}
+
 async function onStartReview(month) {
   try {
     const goals = await apiFetch(`/api/goals?month=${month}`)
@@ -352,7 +362,7 @@ onUnmounted(() => clearInterval(_statusTimer))
       @go-to-goals="currentView = 'goals'"
       @start-review="onStartReview"
     />
-    <MyGoals     v-else-if="currentView === 'goals'" />
+    <MyGoals     v-else-if="currentView === 'goals'" :key="myGoalsKey" />
     <Reflections v-else-if="currentView === 'reflections'" />
     <UserProfile
       v-else-if="currentView === 'profile'"
@@ -367,6 +377,7 @@ onUnmounted(() => clearInterval(_statusTimer))
       :month="reviewMonth"
       @close="showReviewModal = false"
       @saved="onReflectionSaved"
+      @goals-updated="onGoalsUpdated"
     />
 
     <!-- Month-end rollover modal -->

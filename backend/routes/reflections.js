@@ -15,7 +15,7 @@ router.post('/chat', async (req, res) => {
     const minExchanges  = Math.max(goals.length * 2, 4)
 
     const goalsList = goals.map((g, i) =>
-      `${i + 1}. "${g.title}"${g.description ? ` — ${g.description}` : ''}${g.successCriteria ? ` (Success: ${g.successCriteria})` : ''}`
+      `${i + 1}. "${g.title}"${g.description ? ` — ${g.description}` : ''}${g.successCriteria ? ` (Success: ${g.successCriteria})` : ''} [Current progress: ${g.progress ?? 0}%]`
     ).join('\n')
 
     const system = `
@@ -39,13 +39,26 @@ When you have gathered enough information, respond with "done": true and include
 - "evaluation": 2–4 paragraphs — an honest, encouraging written assessment of their overall progress
 - "suggestions": 3–5 short actionable ideas to help them make better progress (each a single sentence)
 
-Until you have enough info:
-{"message":"your question or comment","done":false,"evaluation":"","suggestions":[]}
-
-When done:
-{"message":"brief warm closing remark","done":true,"evaluation":"full written evaluation...","suggestions":["suggestion 1","suggestion 2",...]}
+PROGRESS TRACKING — include in every response:
+"progressUpdates": an array of progress estimates based on what the user said in their most recent message.
+- Only include goals the user explicitly described progress on in this turn
+- Infer a 0–100 value from natural language:
+  "just started" / "beginning" → 10
+  "about a quarter done" → 25
+  "halfway" / "50%" → 50
+  "mostly done" / "nearly there" → 75–85
+  "almost finished" / "just need to submit" → 90–95
+  "done" / "complete" / "finished" → 100
+- When the user says something that implies a specific number ("I'm halfway through"), acknowledge it in your message and confirm back
+- If no progress was described in this turn, return an empty array
 
 Always respond with valid JSON only — no text outside the JSON.
+
+Until done:
+{"message":"your question or comment","done":false,"evaluation":"","suggestions":[],"progressUpdates":[{"goalIndex":1,"progress":50}]}
+
+When done:
+{"message":"brief warm closing remark","done":true,"evaluation":"full written evaluation...","suggestions":["suggestion 1","suggestion 2",...],"progressUpdates":[]}
 `.trim()
 
     const chatMessages = messages.length === 0
@@ -59,14 +72,15 @@ Always respond with valid JSON only — no text outside the JSON.
     })
 
     const parsed = parseChatResponse(getContent(completion), {
-      done: false, evaluation: '', suggestions: [],
+      done: false, evaluation: '', suggestions: [], progressUpdates: [],
     })
 
     res.json({
-      message:     parsed.message,
-      done:        !!parsed.done,
-      evaluation:  parsed.evaluation  || '',
-      suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
+      message:         parsed.message,
+      done:            !!parsed.done,
+      evaluation:      parsed.evaluation  || '',
+      suggestions:     Array.isArray(parsed.suggestions)     ? parsed.suggestions     : [],
+      progressUpdates: Array.isArray(parsed.progressUpdates) ? parsed.progressUpdates : [],
     })
   } catch (err) {
     res.status(500).json({ error: err.message })

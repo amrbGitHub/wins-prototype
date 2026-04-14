@@ -7,7 +7,7 @@ const props = defineProps({
   month: { type: String, required: true },
 })
 
-const emit = defineEmits(['close', 'saved'])
+const emit = defineEmits(['close', 'saved', 'goalsUpdated'])
 
 const { apiFetch, apiFetchPublic } = useApi()
 
@@ -70,6 +70,11 @@ async function sendMessage() {
     messages.value.push({ role: 'assistant', content: data.message })
     await scrollToBottom()
 
+    // Apply any progress updates the AI inferred from this message
+    if (data.progressUpdates?.length) {
+      await applyProgressUpdates(data.progressUpdates)
+    }
+
     if (data.done) {
       done.value        = true
       evaluation.value  = data.evaluation
@@ -86,6 +91,33 @@ async function sendMessage() {
 
 function onKeydown(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
+}
+
+// ── Progress updates ──────────────────────────────────────────────────────────
+async function applyProgressUpdates(updates) {
+  const applied = []
+  await Promise.allSettled(updates.map(async ({ goalIndex, progress }) => {
+    const goal = props.goals[goalIndex - 1]
+    if (!goal || typeof progress !== 'number') return
+    const clamped = Math.max(0, Math.min(100, Math.round(progress)))
+    try {
+      await apiFetch(`/api/goals/${goal.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ progress: clamped }),
+      })
+      applied.push({ title: goal.title, progress: clamped })
+    } catch { /* non-critical */ }
+  }))
+
+  if (applied.length) {
+    // Insert a system notice into the chat so the user can see what changed
+    messages.value.push({
+      role:    'system',
+      content: applied.map(u => `${u.title} → ${u.progress}%`).join(' · '),
+    })
+    emit('goalsUpdated')
+    await scrollToBottom()
+  }
 }
 
 // ── Save ──────────────────────────────────────────────────────────────────────
@@ -157,24 +189,36 @@ async function saveReflection() {
 
       <!-- Chat messages -->
       <div ref="messagesEl" class="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3 min-h-0">
-        <div
-          v-for="(msg, i) in messages"
-          :key="i"
-          class="flex"
-          :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
-        >
-          <div v-if="msg.role === 'assistant'" class="mr-2 mt-1 h-7 w-7 shrink-0 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm">
-            <svg class="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+        <template v-for="(msg, i) in messages" :key="i">
+          <!-- System notice: progress updated -->
+          <div v-if="msg.role === 'system'" class="flex justify-center">
+            <div class="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 shadow-sm">
+              <svg class="h-3 w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+              </svg>
+              Progress updated: {{ msg.content }}
+            </div>
           </div>
+
+          <!-- Normal chat messages -->
           <div
-            class="max-w-[78%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
-            :class="msg.role === 'user'
-              ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] text-white rounded-br-sm shadow-md'
-              : 'bg-white border border-slate-200/70 text-slate-700 rounded-bl-sm shadow-sm'"
-          >{{ msg.content }}</div>
-        </div>
+            v-else
+            class="flex"
+            :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
+          >
+            <div v-if="msg.role === 'assistant'" class="mr-2 mt-1 h-7 w-7 shrink-0 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm">
+              <svg class="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div
+              class="max-w-[78%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
+              :class="msg.role === 'user'
+                ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] text-white rounded-br-sm shadow-md'
+                : 'bg-white border border-slate-200/70 text-slate-700 rounded-bl-sm shadow-sm'"
+            >{{ msg.content }}</div>
+          </div>
+        </template>
 
         <!-- Typing indicator -->
         <div v-if="loading" class="flex justify-start">
