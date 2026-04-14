@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useAuth } from './composables/useAuth.js'
 import { useApi }  from './composables/useApi.js'
 import Celebrate      from './components/Celebrate.vue'
@@ -16,15 +16,51 @@ const { user, loading, signOut } = useAuth()
 const { apiFetch, apiFetchPublic } = useApi()
 
 const currentView = ref('celebrate')
+const sidebarOpen = ref(false)
 
 const tabs = [
-  { id: 'celebrate',   label: 'Celebrate'   },
-  { id: 'journal',     label: 'Journal'     },
-  { id: 'planner',     label: 'Planner'     },
-  { id: 'goals',       label: 'My Goals'    },
-  { id: 'reflections', label: 'Reflections' },
-  { id: 'profile',     label: 'Profile'     },
+  {
+    id: 'celebrate',
+    label: 'Celebrate',
+    iconFill: true,
+    iconPath: 'M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z',
+  },
+  {
+    id: 'journal',
+    label: 'Journal',
+    iconFill: false,
+    iconPath: 'M16.862 4.487l1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10',
+  },
+  {
+    id: 'planner',
+    label: 'Planner',
+    iconFill: false,
+    iconPath: 'M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5',
+  },
+  {
+    id: 'goals',
+    label: 'My Goals',
+    iconFill: false,
+    iconPath: 'M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.745 3.745 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12z',
+  },
+  {
+    id: 'reflections',
+    label: 'Reflections',
+    iconFill: false,
+    iconPath: 'M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z',
+  },
 ]
+
+const currentTabLabel = computed(() =>
+  currentView.value === 'profile'
+    ? 'Profile'
+    : (tabs.find(t => t.id === currentView.value)?.label ?? 'Wins')
+)
+
+function navigate(id) {
+  currentView.value = id
+  sidebarOpen.value = false
+}
 
 // ── Profile ───────────────────────────────────────────────────────────────────
 const profile        = ref(null)
@@ -181,7 +217,6 @@ function onReflectionSaved() {
   currentView.value = 'reflections'
 }
 
-// Re-fetch reviewGoals and bump key so MyGoals reloads if it's open
 const myGoalsKey = ref(0)
 
 async function onGoalsUpdated() {
@@ -225,7 +260,7 @@ onUnmounted(() => clearInterval(_statusTimer))
         </div>
         <span class="absolute inset-0 h-12 w-12 rounded-2xl bg-[#0d5f6b] animate-ping opacity-20"></span>
       </div>
-      <span class="text-sm font-medium text-slate-500">Loading...</span>
+      <span class="text-sm font-medium text-slate-500">Loading…</span>
     </div>
   </div>
 
@@ -233,23 +268,41 @@ onUnmounted(() => clearInterval(_statusTimer))
   <AuthPage v-else-if="!user" />
 
   <!-- Authenticated -->
-  <div v-else class="min-h-screen text-slate-900 bg-gradient-to-br from-slate-50 via-white to-teal-50/30">
+  <div v-else class="flex min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50/30 text-slate-900">
 
-    <!-- Onboarding modal — shown once for new/existing users without a profile -->
+    <!-- Onboarding modal -->
     <OnboardingModal v-if="showOnboarding && profileLoaded" @done="onOnboardingDone" />
 
-    <!-- Header -->
-    <header class="sticky top-0 z-10 border-b border-slate-200/60 bg-white/80 backdrop-blur-xl shadow-sm">
-      <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
+    <!-- ── Mobile sidebar backdrop ────────────────────────────────────────── -->
+    <Transition
+      enter-active-class="transition duration-200 ease-out"
+      enter-from-class="opacity-0"
+      enter-to-class="opacity-100"
+      leave-active-class="transition duration-150 ease-in"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="sidebarOpen"
+        class="fixed inset-0 z-20 bg-slate-900/40 backdrop-blur-sm md:hidden"
+        @click="sidebarOpen = false"
+      />
+    </Transition>
 
-        <!-- Logo + LLM dot -->
+    <!-- ── Sidebar ────────────────────────────────────────────────────────── -->
+    <aside
+      class="fixed inset-y-0 left-0 z-30 flex w-64 flex-col bg-white border-r border-slate-200/60 shadow-sm transition-transform duration-300 ease-in-out"
+      :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'"
+    >
+      <!-- Logo -->
+      <div class="px-5 py-5 border-b border-slate-100/80 shrink-0">
         <div class="flex items-center gap-3">
-          <div class="relative">
-            <div class="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-[#0d5f6b] to-[#0a4a54] text-white shadow-lg shadow-[#0d5f6b]/25">
-              <span class="text-lg font-bold">W</span>
+          <div class="relative shrink-0">
+            <div class="h-9 w-9 rounded-xl bg-gradient-to-br from-[#0d5f6b] to-[#0a4a54] flex items-center justify-center shadow-md shadow-[#0d5f6b]/25">
+              <span class="text-sm font-bold text-white">W</span>
             </div>
             <div
-              class="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white transition-colors duration-500"
+              class="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white transition-colors duration-500"
               :class="{
                 'bg-emerald-400 animate-pulse': llmStatus === 'online',
                 'bg-rose-400':                  llmStatus === 'offline',
@@ -259,118 +312,163 @@ onUnmounted(() => clearInterval(_statusTimer))
             />
           </div>
           <div>
-            <h1 class="text-lg font-bold bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] bg-clip-text text-transparent">Celebrating Wins</h1>
-            <p class="text-sm text-slate-400 -mt-0.5 font-medium">Make training impact visible</p>
+            <p class="text-sm font-bold text-slate-800 leading-tight">Celebrating Wins</p>
+            <p class="text-xs text-slate-400 font-medium leading-tight mt-0.5">Make training impact visible</p>
           </div>
-        </div>
-
-        <!-- Desktop nav -->
-        <div class="hidden sm:flex rounded-2xl border border-slate-200/60 bg-slate-50/80 p-0.5 shadow-inner">
-          <button
-            v-for="tab in tabs"
-            :key="tab.id"
-            @click="currentView = tab.id"
-            class="relative rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-200"
-            :class="currentView === tab.id
-              ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] text-white shadow-md shadow-[#0d5f6b]/20'
-              : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'"
-          >
-            {{ tab.label }}
-            <span
-              v-if="tab.id === 'reflections' && showReviewBanner"
-              class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-amber-400 border-2 border-white"
-            />
-          </button>
-        </div>
-
-        <!-- User + sign out -->
-        <div class="flex items-center gap-3">
-          <button
-            @click="currentView = 'profile'"
-            class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100/80 hover:bg-slate-200/60 transition"
-          >
-            <div class="h-7 w-7 rounded-full bg-gradient-to-br from-[#0d5f6b] to-[#0a4a54] flex items-center justify-center text-white text-xs font-bold shadow-sm">
-              {{ (profile?.firstName || user.email)[0].toUpperCase() }}
-            </div>
-            <span class="text-xs text-slate-600 font-medium truncate max-w-[150px]">
-              {{ profile?.firstName ? `${profile.firstName}${profile.lastName ? ' ' + profile.lastName : ''}` : user.email }}
-            </span>
-          </button>
-          <button
-            @click="signOut"
-            class="rounded-xl border border-slate-200/60 bg-white/80 px-4 py-2 text-sm font-medium
-                   text-slate-600 hover:bg-gradient-to-r hover:from-rose-50 hover:to-orange-50 hover:border-rose-200 hover:text-rose-600 transition-all duration-200 shadow-sm"
-          >
-            Sign out
-          </button>
         </div>
       </div>
 
-      <!-- Mobile nav -->
-      <div class="flex sm:hidden border-t border-slate-100/60 bg-white/50 overflow-x-auto">
+      <!-- Nav items -->
+      <nav class="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         <button
           v-for="tab in tabs"
           :key="tab.id"
-          @click="currentView = tab.id"
-          class="relative flex-shrink-0 px-4 py-2.5 text-xs font-semibold transition-all duration-200"
+          @click="navigate(tab.id)"
+          class="relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 text-left"
           :class="currentView === tab.id
-            ? 'text-[#0d5f6b] border-b-2 border-[#0d5f6b]'
-            : 'text-slate-400'"
+            ? 'bg-gradient-to-r from-[#0d5f6b]/10 to-teal-50/60 text-[#0d5f6b] border border-[#0d5f6b]/15 shadow-sm'
+            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'"
         >
+          <svg
+            class="h-5 w-5 shrink-0"
+            viewBox="0 0 24 24"
+            :fill="tab.iconFill ? 'currentColor' : 'none'"
+            :stroke="tab.iconFill ? 'none' : 'currentColor'"
+            stroke-width="1.5"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" :d="tab.iconPath" />
+          </svg>
           {{ tab.label }}
+          <!-- Review due badge -->
           <span
             v-if="tab.id === 'reflections' && showReviewBanner"
-            class="absolute top-1 right-0.5 h-2 w-2 rounded-full bg-amber-400"
-          />
+            class="ml-auto flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-[10px] font-bold text-white"
+          >!</span>
+        </button>
+      </nav>
+
+      <!-- User + sign out -->
+      <div class="px-3 py-4 border-t border-slate-100/80 space-y-1 shrink-0">
+        <button
+          @click="navigate('profile')"
+          class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200"
+          :class="currentView === 'profile'
+            ? 'bg-gradient-to-r from-[#0d5f6b]/10 to-teal-50/60 text-[#0d5f6b] border border-[#0d5f6b]/15 shadow-sm'
+            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'"
+        >
+          <div class="h-7 w-7 rounded-full bg-gradient-to-br from-[#0d5f6b] to-[#0a4a54] flex items-center justify-center text-white text-xs font-bold shadow-sm shrink-0">
+            {{ (profile?.firstName || user.email)[0].toUpperCase() }}
+          </div>
+          <span class="truncate">
+            {{ profile?.firstName
+                ? `${profile.firstName}${profile.lastName ? ' ' + profile.lastName : ''}`
+                : user.email }}
+          </span>
+        </button>
+        <button
+          @click="signOut"
+          class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all duration-200"
+        >
+          <svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
+          </svg>
+          Sign out
         </button>
       </div>
-    </header>
+    </aside>
 
-    <!-- Weekly review banner -->
-    <transition
-      enter-active-class="transition duration-300 ease-out"
-      enter-from-class="-translate-y-full opacity-0"
-      enter-to-class="translate-y-0 opacity-100"
-      leave-active-class="transition duration-200 ease-in"
-      leave-from-class="translate-y-0 opacity-100"
-      leave-to-class="-translate-y-full opacity-0"
-    >
-      <div v-if="showReviewBanner" class="border-b border-amber-200/60 bg-gradient-to-r from-amber-50 to-orange-50/60">
-        <div class="mx-auto max-w-6xl px-4 py-3 flex items-center gap-3">
-          <div class="shrink-0 h-8 w-8 rounded-xl bg-amber-100 flex items-center justify-center">
-            <svg class="h-4 w-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
-            </svg>
-          </div>
-          <p class="flex-1 text-sm text-amber-900 font-medium">
-            Ready for a quick progress check-in{{ profile?.firstName ? `, ${profile.firstName}` : '' }}?
-          </p>
-          <div class="flex items-center gap-2 shrink-0">
-            <button @click="openReviewModal" class="rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-1.5 text-xs font-bold text-white shadow-sm transition">Yes, let's go</button>
-            <button @click="snoozeReview" class="rounded-xl border border-amber-200 bg-white/80 px-4 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50 transition">Maybe next week</button>
+    <!-- ── Main content ───────────────────────────────────────────────────── -->
+    <div class="flex flex-1 flex-col md:ml-64 min-h-screen">
+
+      <!-- Mobile top bar -->
+      <header class="md:hidden sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3 bg-white/90 backdrop-blur-xl border-b border-slate-200/60 shadow-sm">
+        <button
+          @click="sidebarOpen = true"
+          class="rounded-xl p-2 text-slate-500 hover:bg-slate-100 transition"
+        >
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+          </svg>
+        </button>
+        <span class="text-sm font-bold text-slate-800">{{ currentTabLabel }}</span>
+        <button
+          @click="navigate('profile')"
+          class="h-8 w-8 rounded-full bg-gradient-to-br from-[#0d5f6b] to-[#0a4a54] flex items-center justify-center text-white text-xs font-bold shadow-sm shrink-0"
+        >
+          {{ (profile?.firstName || user.email)[0].toUpperCase() }}
+        </button>
+      </header>
+
+      <!-- Review banner -->
+      <Transition
+        enter-active-class="transition duration-300 ease-out"
+        enter-from-class="-translate-y-2 opacity-0"
+        enter-to-class="translate-y-0 opacity-100"
+        leave-active-class="transition duration-200 ease-in"
+        leave-from-class="translate-y-0 opacity-100"
+        leave-to-class="-translate-y-2 opacity-0"
+      >
+        <div v-if="showReviewBanner" class="border-b border-amber-200/60 bg-gradient-to-r from-amber-50 to-orange-50/60 shrink-0">
+          <div class="px-6 py-3 flex items-center gap-3">
+            <div class="shrink-0 h-8 w-8 rounded-xl bg-amber-100 flex items-center justify-center">
+              <svg class="h-4 w-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+              </svg>
+            </div>
+            <p class="flex-1 text-sm text-amber-900 font-medium">
+              Ready for a quick progress check-in{{ profile?.firstName ? `, ${profile.firstName}` : '' }}?
+            </p>
+            <div class="flex items-center gap-2 shrink-0">
+              <button @click="openReviewModal" class="rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-1.5 text-xs font-bold text-white shadow-sm transition">Yes, let's go</button>
+              <button @click="snoozeReview" class="rounded-xl border border-amber-200 bg-white/80 px-4 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50 transition">Maybe next week</button>
+            </div>
           </div>
         </div>
-      </div>
-    </transition>
+      </Transition>
 
-    <!-- Views -->
-    <Celebrate   v-if="currentView === 'celebrate'" />
-    <Journal     v-else-if="currentView === 'journal'" />
-    <Planner
-      v-else-if="currentView === 'planner'"
-      :first-name="profile?.firstName || ''"
-      @go-to-goals="currentView = 'goals'"
-      @start-review="onStartReview"
-    />
-    <MyGoals     v-else-if="currentView === 'goals'" :key="myGoalsKey" />
-    <Reflections v-else-if="currentView === 'reflections'" />
-    <UserProfile
-      v-else-if="currentView === 'profile'"
-      :profile="profile"
-      @updated="onProfileUpdated"
-    />
+      <!-- Page content -->
+      <Transition
+        enter-active-class="transition duration-200 ease-out"
+        enter-from-class="opacity-0 translate-y-1"
+        enter-to-class="opacity-100 translate-y-0"
+        leave-active-class="transition duration-150 ease-in"
+        leave-from-class="opacity-100"
+        leave-to-class="opacity-0"
+        mode="out-in"
+      >
+        <Celebrate
+          v-if="currentView === 'celebrate'"
+          key="celebrate"
+        />
+        <Journal
+          v-else-if="currentView === 'journal'"
+          key="journal"
+        />
+        <Planner
+          v-else-if="currentView === 'planner'"
+          key="planner"
+          :first-name="profile?.firstName || ''"
+          @go-to-goals="navigate('goals')"
+          @start-review="onStartReview"
+        />
+        <MyGoals
+          v-else-if="currentView === 'goals'"
+          :key="'goals-' + myGoalsKey"
+        />
+        <Reflections
+          v-else-if="currentView === 'reflections'"
+          key="reflections"
+        />
+        <UserProfile
+          v-else-if="currentView === 'profile'"
+          key="profile"
+          :profile="profile"
+          @updated="onProfileUpdated"
+        />
+      </Transition>
+    </div>
 
-    <!-- Review modal -->
+    <!-- ── Modals ─────────────────────────────────────────────────────────── -->
     <ReviewModal
       v-if="showReviewModal"
       :goals="reviewGoals"
@@ -380,7 +478,6 @@ onUnmounted(() => clearInterval(_statusTimer))
       @goals-updated="onGoalsUpdated"
     />
 
-    <!-- Month-end rollover modal -->
     <Teleport to="body">
       <div v-if="showRolloverModal" class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" />
@@ -397,7 +494,7 @@ onUnmounted(() => clearInterval(_statusTimer))
               class="rounded-2xl border border-slate-200/60 bg-slate-50/50 px-4 py-3"
             >
               <p class="text-sm font-semibold text-slate-800 mb-2.5">{{ goal.title }}</p>
-              <div class="flex gap-2">
+              <div class="flex gap-2 flex-wrap">
                 <button
                   v-for="opt in [
                     { val: 'transfer', label: 'Move to this month' },
