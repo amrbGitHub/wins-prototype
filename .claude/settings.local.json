@@ -12,7 +12,12 @@
       "Bash(npm pack:*)",
       "Bash(cd /tmp)",
       "Bash(tar -xf kokoro-js-1.2.1.tgz)",
-      "Bash(dir \"C:\\\\Users\\\\super\\\\Documents\\\\GitHub\\\\wins-prototype\\\\backend\"\")"
+      "Bash(dir \"C:\\\\Users\\\\super\\\\Documents\\\\GitHub\\\\wins-prototype\\\\backend\"\")",
+      "Bash(ls -la /c/Users/super/Documents/GitHub/wins-prototype/frontend/*.js /c/Users/super/Documents/GitHub/wins-prototype/frontend/*.json)",
+      "Bash(grep -E \"\\\\.\\(js|json\\)$\")",
+      "Bash(npm install:*)",
+      "Bash(node -e ':*)",
+      "Bash(npm run:*)"
     ]
   }
 }

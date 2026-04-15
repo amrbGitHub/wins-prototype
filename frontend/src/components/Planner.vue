@@ -4,6 +4,7 @@ import { useApi } from '../composables/useApi.js'
 import { useSpeech } from '../composables/useSpeech.js'
 import { useTTS } from '../composables/useTTS.js'
 import MicButton from './MicButton.vue'
+import { CalendarDays, Zap, Send, Trash2, Target, ChevronRight, RefreshCw, MessageSquare, Mic } from 'lucide-vue-next'
 
 const props = defineProps({
   firstName: { type: String, default: '' },
@@ -421,294 +422,326 @@ const convoStatusLabel = computed(() => ({
 </script>
 
 <template>
-  <main class="mx-auto max-w-3xl px-4 py-8">
+  <div class="min-h-screen" style="background:var(--page-bg)">
 
-    <!-- ── Empty state ──────────────────────────────────────────────────────── -->
-    <div v-if="!started" class="flex flex-col items-center justify-center min-h-[62vh] gap-6 text-center">
+    <!-- ── Hero Banner ──────────────────────────────────────────────────────────── -->
+    <div class="relative overflow-hidden" style="background:linear-gradient(135deg,#0d5f6b 0%,#0b5060 40%,#0ea5e9 100%)">
+      <div class="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-white/5 blur-3xl"></div>
+      <div class="pointer-events-none absolute -bottom-10 left-1/4 h-48 w-48 rounded-full bg-cyan-300/10 blur-2xl"></div>
 
-      <div class="h-20 w-20 rounded-3xl bg-gradient-to-br from-[#0d5f6b]/10 to-[#0a4a54]/5 flex items-center justify-center shadow-inner">
-        <svg class="h-10 w-10 text-[#0d5f6b]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" />
-        </svg>
+      <div class="relative mx-auto max-w-3xl px-6 py-10">
+        <div class="flex items-center gap-5">
+          <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/15 shadow-lg backdrop-blur-sm ring-1 ring-white/20">
+            <CalendarDays class="h-7 w-7 text-white" />
+          </div>
+          <div>
+            <h1 class="text-2xl font-extrabold tracking-tight text-white drop-shadow-sm">Planner</h1>
+            <p class="mt-0.5 text-sm font-medium text-cyan-100">Chat with your AI coach to set meaningful monthly goals.</p>
+          </div>
+        </div>
       </div>
-
-      <div class="space-y-1.5">
-        <h2 class="text-2xl font-bold text-slate-800">Plan your {{ monthLabel }}</h2>
-        <p class="text-slate-500 text-sm max-w-xs mx-auto leading-relaxed">
-          Chat with your AI coach to set clear, meaningful goals for the month ahead.
-        </p>
-      </div>
-
-      <!-- Mode selector -->
-      <div class="flex rounded-2xl border border-slate-200/60 bg-slate-50/80 p-0.5 shadow-inner">
-        <button
-          @click="mode = 'text'"
-          class="flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold transition-all duration-200"
-          :class="mode === 'text'
-            ? 'bg-white text-slate-800 shadow-sm'
-            : 'text-slate-400 hover:text-slate-600'"
-        >
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-          </svg>
-          Text
-        </button>
-        <button
-          @click="mode = 'convo'"
-          :disabled="!ttsSupported"
-          class="flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-          :class="mode === 'convo'
-            ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] text-white shadow-md shadow-[#0d5f6b]/20'
-            : 'text-slate-400 hover:text-slate-600'"
-          :title="!ttsSupported ? 'Voice output not supported in this browser' : ''"
-        >
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
-          </svg>
-          Convo
-        </button>
-      </div>
-
-      <button
-        @click="startPlanning"
-        :disabled="loading"
-        class="rounded-2xl bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] px-8 py-3.5 text-sm font-semibold text-white shadow-lg shadow-[#0d5f6b]/25 hover:shadow-xl hover:shadow-[#0d5f6b]/30 transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60"
-      >
-        {{ loading ? 'Starting…' : 'Start Planning' }}
-      </button>
     </div>
 
-    <!-- ── Active session ────────────────────────────────────────────────────── -->
-    <div v-else class="flex flex-col gap-5">
+    <div class="mx-auto max-w-3xl px-4 py-8">
 
-      <!-- Toolbar -->
-      <div class="flex items-center justify-between gap-3">
-        <!-- Month label (no navigation — always current month) -->
-        <span class="text-sm font-semibold text-slate-600">{{ monthLabel }}</span>
+      <!-- ── Empty / start state ─────────────────────────────────────────────── -->
+      <div v-if="!started" class="flex flex-col items-center justify-center gap-8 py-12 text-center animate-fade-up">
+        <div class="animate-float flex h-24 w-24 items-center justify-center rounded-3xl shadow-2xl shadow-teal-500/20" style="background:linear-gradient(135deg,#0d5f6b,#0ea5e9)">
+          <Zap class="h-12 w-12 text-white" />
+        </div>
 
-        <div class="flex items-center gap-2">
-          <!-- Mode toggle -->
-          <div class="flex rounded-xl border border-slate-200/60 bg-slate-50/80 p-0.5">
-            <button
-              @click="switchMode('text')"
-              class="rounded-lg px-3 py-1 text-xs font-semibold transition-all duration-200"
-              :class="mode === 'text' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'"
-            >Text</button>
-            <button
-              @click="switchMode('convo')"
-              :disabled="!ttsSupported"
-              class="rounded-lg px-3 py-1 text-xs font-semibold transition-all duration-200 disabled:opacity-40"
-              :class="mode === 'convo' ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'"
-            >Convo</button>
-          </div>
+        <div class="space-y-2">
+          <h2 class="text-2xl font-extrabold text-slate-800">Plan your {{ monthLabel }}</h2>
+          <p class="mx-auto max-w-xs text-sm leading-relaxed text-slate-500">
+            Chat with your AI coach to set clear, meaningful goals for the month ahead.
+          </p>
+        </div>
 
-          <!-- Goals pill -->
+        <!-- Mode selector pill -->
+        <div class="flex overflow-hidden rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
           <button
-            v-if="goalCount > 0"
-            @click="emit('goToGoals')"
-            class="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition"
+            @click="mode = 'text'"
+            class="flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-semibold transition-all duration-200"
+            :class="mode === 'text'
+              ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0e7888] text-white shadow-md'
+              : 'text-slate-500 hover:text-slate-700'"
           >
-            <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            {{ goalCount }} {{ goalCount === 1 ? 'goal' : 'goals' }}
-            <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+            <MessageSquare class="h-4 w-4" />
+            Text
           </button>
-
-          <!-- Weekly review button -->
           <button
-            v-if="goalCount > 0"
-            @click="emit('startReview', month)"
-            title="Start weekly progress review"
-            class="flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition"
+            @click="mode = 'convo'"
+            :disabled="!ttsSupported"
+            class="flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40"
+            :class="mode === 'convo'
+              ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0e7888] text-white shadow-md'
+              : 'text-slate-500 hover:text-slate-700'"
+            :title="!ttsSupported ? 'Voice output not supported in this browser' : ''"
           >
-            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            Review
-          </button>
-
-          <!-- Delete -->
-          <button
-            @click="deletePlan"
-            :disabled="deleting"
-            title="Delete plan and all goals for this month"
-            class="rounded-xl border border-slate-200/70 bg-white p-1.5 text-slate-400 hover:text-rose-500 hover:border-rose-200 hover:bg-rose-50 transition disabled:opacity-40"
-          >
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-            </svg>
+            <Mic class="h-4 w-4" />
+            Convo
           </button>
         </div>
+
+        <button
+          @click="startPlanning"
+          :disabled="loading"
+          class="btn btn-primary flex items-center gap-2 rounded-2xl px-10 py-3.5 text-sm disabled:opacity-60"
+        >
+          <span v-if="loading" class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
+          <Zap v-else class="h-4 w-4" />
+          {{ loading ? 'Starting…' : 'Start Planning' }}
+        </button>
       </div>
 
-      <!-- Error -->
-      <p v-if="error" class="text-sm text-rose-500 bg-rose-50 border border-rose-100 rounded-xl px-4 py-2.5">{{ error }}</p>
+      <!-- ── Active session ─────────────────────────────────────────────────── -->
+      <div v-else class="flex flex-col gap-4 animate-fade-up">
 
-      <!-- ══ TEXT MODE ══════════════════════════════════════════════════════════ -->
-      <template v-if="mode === 'text'">
-        <!-- Messages -->
-        <div ref="messagesEl" class="flex flex-col gap-3">
-          <div
-            v-for="(msg, i) in messages" :key="i"
-            class="flex" :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
-          >
-            <div v-if="msg.role === 'assistant'" class="mr-2 mt-1 h-7 w-7 shrink-0 rounded-xl bg-gradient-to-br from-[#0d5f6b] to-[#0a4a54] flex items-center justify-center shadow-sm">
-              <span class="text-white text-xs font-bold">W</span>
-            </div>
-            <div
-              class="max-w-[78%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
-              :class="msg.role === 'user'
-                ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] text-white rounded-br-sm shadow-md shadow-[#0d5f6b]/15'
-                : 'bg-white border border-slate-200/70 text-slate-700 rounded-bl-sm shadow-sm'"
-            >{{ msg.content }}</div>
-          </div>
+        <!-- Toolbar -->
+        <div class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/60 bg-white px-4 py-3 shadow-sm">
+          <!-- Month + mode -->
+          <div class="flex items-center gap-3">
+            <CalendarDays class="h-4 w-4 text-slate-400" />
+            <span class="text-sm font-bold text-slate-700">{{ monthLabel }}</span>
 
-          <!-- Typing indicator -->
-          <div v-if="loading" class="flex justify-start">
-            <div class="mr-2 mt-1 h-7 w-7 shrink-0 rounded-xl bg-gradient-to-br from-[#0d5f6b] to-[#0a4a54] flex items-center justify-center shadow-sm">
-              <span class="text-white text-xs font-bold">W</span>
-            </div>
-            <div class="bg-white border border-slate-200/70 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm flex gap-1.5 items-center">
-              <span class="h-2 w-2 rounded-full bg-slate-300 animate-bounce" style="animation-delay:0ms" />
-              <span class="h-2 w-2 rounded-full bg-slate-300 animate-bounce" style="animation-delay:160ms" />
-              <span class="h-2 w-2 rounded-full bg-slate-300 animate-bounce" style="animation-delay:320ms" />
+            <!-- Mode toggle -->
+            <div class="ml-1 flex overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+              <button
+                @click="switchMode('text')"
+                class="flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition-all duration-200"
+                :class="mode === 'text' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'"
+              >
+                <MessageSquare class="h-3 w-3" />Text
+              </button>
+              <button
+                @click="switchMode('convo')"
+                :disabled="!ttsSupported"
+                class="flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition-all duration-200 disabled:opacity-40"
+                :class="mode === 'convo' ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0e7888] text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'"
+              >
+                <Mic class="h-3 w-3" />Convo
+              </button>
             </div>
           </div>
-        </div>
 
-        <!-- Input row -->
-        <div class="flex gap-2 mt-1 items-end">
-          <MicButton :listening="isListening" :supported="speechSupported" @click="handleMic" />
-          <textarea
-            v-model="input"
-            @keydown="onKeydown"
-            rows="2"
-            :placeholder="isListening ? 'Listening…' : 'Type your response… (Enter to send)'"
-            :disabled="loading"
-            class="flex-1 resize-none rounded-2xl border border-slate-200/70 bg-white px-4 py-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#0d5f6b]/30 focus:border-[#0d5f6b]/50 disabled:opacity-50 transition placeholder:text-slate-400"
-            :class="isListening ? 'border-[#0d5f6b]/40 ring-2 ring-[#0d5f6b]/20' : ''"
-          />
-          <button
-            @click="sendTextMessage"
-            :disabled="loading || !input.trim()"
-            class="rounded-2xl bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] p-3 text-white shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-40"
-          >
-            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-            </svg>
-          </button>
-        </div>
-      </template>
-
-      <!-- ══ CONVO MODE ═════════════════════════════════════════════════════════ -->
-      <template v-else>
-        <div class="flex flex-col items-center gap-8 py-6">
-
-          <!-- Last AI message -->
-          <div
-            v-if="messages.length"
-            class="w-full rounded-2xl border border-slate-200/70 bg-white px-5 py-4 shadow-sm text-sm text-slate-700 leading-relaxed text-center max-w-md"
-          >
-            {{ messages.filter(m => m.role === 'assistant').at(-1)?.content }}
-          </div>
-
-          <!-- Orb + status -->
-          <div class="flex flex-col items-center gap-4">
-
-            <!-- Model download progress ring (first-time only) -->
-            <div v-if="ttsLoading" class="flex flex-col items-center gap-3">
-              <div class="relative h-24 w-24">
-                <svg class="h-24 w-24 -rotate-90" viewBox="0 0 100 100">
-                  <circle cx="50" cy="50" r="40" fill="none" stroke="#e2e8f0" stroke-width="8" />
-                  <circle
-                    cx="50" cy="50" r="40" fill="none"
-                    stroke="#0d5f6b" stroke-width="8" stroke-linecap="round"
-                    :stroke-dasharray="`${2 * Math.PI * 40}`"
-                    :stroke-dashoffset="`${2 * Math.PI * 40 * (1 - loadProgress / 100)}`"
-                    class="transition-all duration-300"
-                  />
-                </svg>
-                <span class="absolute inset-0 flex items-center justify-center text-sm font-bold text-[#0d5f6b]">
-                  {{ loadProgress }}%
-                </span>
-              </div>
-              <p class="text-sm font-semibold text-slate-600">Downloading voice model…</p>
-              <p class="text-xs text-slate-400 text-center max-w-[200px]">Only happens once · ~82 MB · cached forever after</p>
-            </div>
-
-            <!-- Animated orb button -->
+          <!-- Action pills -->
+          <div class="flex items-center gap-2">
             <button
-              v-else
-              @click="toggleConvoMic"
-              class="relative h-24 w-24 rounded-full focus:outline-none transition-transform duration-200 hover:scale-105 active:scale-95"
-              :disabled="convoStatus === 'processing'"
+              v-if="goalCount > 0"
+              @click="emit('goToGoals')"
+              class="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
             >
-              <!-- Outer ring pulses when listening or speaking -->
-              <span
-                class="absolute inset-0 rounded-full"
-                :class="{
-                  'bg-[#0d5f6b] animate-ping opacity-20': convoStatus === 'listening',
-                  'bg-emerald-500 animate-ping opacity-20': convoStatus === 'speaking',
-                }"
-              />
-              <!-- Inner circle -->
-              <span
-                class="absolute inset-2 rounded-full transition-all duration-300"
-                :class="{
-                  'bg-gradient-to-br from-[#0d5f6b] to-[#0a4a54] shadow-lg shadow-[#0d5f6b]/30': convoStatus === 'listening',
-                  'bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/30': convoStatus === 'speaking',
-                  'bg-slate-200': convoStatus === 'processing',
-                  'bg-gradient-to-br from-slate-200 to-slate-300': convoStatus === 'idle',
-                }"
-              />
-              <!-- Icon -->
-              <span class="absolute inset-0 flex items-center justify-center">
-                <svg
-                  v-if="convoStatus !== 'speaking' && convoStatus !== 'processing'"
-                  class="h-9 w-9 transition-colors duration-300"
-                  :class="convoStatus === 'listening' ? 'text-white' : 'text-slate-500'"
-                  viewBox="0 0 24 24" fill="currentColor"
-                >
-                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2H3v2a9 9 0 0 0 8 8.94V23h2v-2.06A9 9 0 0 0 21 12v-2h-2z"/>
-                </svg>
-                <span v-else-if="convoStatus === 'speaking'" class="flex gap-1 items-end h-8">
-                  <span class="w-1.5 rounded-full bg-white animate-bounce" style="height:40%;animation-delay:0ms" />
-                  <span class="w-1.5 rounded-full bg-white animate-bounce" style="height:80%;animation-delay:100ms" />
-                  <span class="w-1.5 rounded-full bg-white animate-bounce" style="height:60%;animation-delay:200ms" />
-                  <span class="w-1.5 rounded-full bg-white animate-bounce" style="height:100%;animation-delay:80ms" />
-                  <span class="w-1.5 rounded-full bg-white animate-bounce" style="height:50%;animation-delay:160ms" />
-                </span>
-                <svg v-else class="h-8 w-8 text-slate-400 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                </svg>
-              </span>
+              <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span>
+              {{ goalCount }} {{ goalCount === 1 ? 'goal' : 'goals' }}
+              <ChevronRight class="h-3 w-3" />
             </button>
 
-            <!-- Status label -->
-            <p class="text-sm font-semibold text-slate-500 h-5">{{ convoStatusLabel }}</p>
+            <button
+              v-if="goalCount > 0"
+              @click="emit('startReview', month)"
+              title="Start weekly progress review"
+              class="flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 transition hover:bg-amber-100"
+            >
+              <Target class="h-3.5 w-3.5" />
+              Review
+            </button>
 
-            <!-- Live transcript while listening -->
-            <p v-if="convoTranscript" class="text-sm text-slate-600 italic text-center max-w-xs leading-relaxed">
-              "{{ convoTranscript }}"
-            </p>
+            <button
+              @click="deletePlan"
+              :disabled="deleting"
+              title="Delete plan and all goals for this month"
+              class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500 disabled:opacity-40"
+            >
+              <Trash2 class="h-4 w-4" />
+            </button>
+          </div>
+        </div>
 
-            <!-- Hint text when idle -->
-            <p v-if="convoStatus === 'idle'" class="text-xs text-slate-400 text-center max-w-[220px] leading-relaxed">
-              Tap the mic to speak — sends automatically after you pause
-            </p>
+        <!-- Error -->
+        <div v-if="error" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ error }}</div>
+
+        <!-- ── TEXT MODE ──────────────────────────────────────────────────────── -->
+        <template v-if="mode === 'text'">
+          <!-- Chat messages -->
+          <div class="card p-5">
+            <div ref="messagesEl" class="flex flex-col gap-4 min-h-[200px]">
+              <div
+                v-for="(msg, i) in messages"
+                :key="i"
+                class="flex animate-fade-up"
+                :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
+              >
+                <!-- AI avatar -->
+                <div
+                  v-if="msg.role === 'assistant'"
+                  class="mr-2.5 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl shadow-sm"
+                  style="background:linear-gradient(135deg,#0d5f6b,#0ea5e9)"
+                >
+                  <Zap class="h-4 w-4 text-white" />
+                </div>
+
+                <div
+                  class="max-w-[78%] whitespace-pre-wrap text-sm leading-relaxed"
+                  :class="msg.role === 'user' ? 'bubble-user' : 'bubble-ai'"
+                >{{ msg.content }}</div>
+              </div>
+
+              <!-- Typing indicator -->
+              <div v-if="loading" class="flex justify-start animate-fade-in">
+                <div
+                  class="mr-2.5 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl shadow-sm"
+                  style="background:linear-gradient(135deg,#0d5f6b,#0ea5e9)"
+                >
+                  <Zap class="h-4 w-4 text-white" />
+                </div>
+                <div class="bubble-ai flex items-center gap-1.5 px-4 py-3">
+                  <span class="typing-dot"></span>
+                  <span class="typing-dot"></span>
+                  <span class="typing-dot"></span>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <!-- End conversation -->
-          <button
-            @click="endConvo"
-            class="rounded-xl border border-slate-200/70 bg-white px-4 py-2 text-xs font-semibold text-slate-500 hover:text-rose-500 hover:border-rose-200 hover:bg-rose-50 transition shadow-sm"
-          >
-            End conversation
-          </button>
-        </div>
-      </template>
+          <!-- Input row -->
+          <div class="flex items-end gap-2">
+            <MicButton :listening="isListening" :supported="speechSupported" @click="handleMic" />
+            <textarea
+              v-model="input"
+              @keydown="onKeydown"
+              rows="2"
+              :placeholder="isListening ? 'Listening…' : 'Type your message… (Enter to send)'"
+              :disabled="loading"
+              class="input flex-1 resize-none"
+              :class="isListening ? '!border-[#0d5f6b] !ring-4 !ring-[#0d5f6b]/10' : ''"
+              style="border-radius:14px"
+            />
+            <button
+              @click="sendTextMessage"
+              :disabled="loading || !input.trim()"
+              class="btn btn-primary flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl p-0 disabled:opacity-40"
+            >
+              <Send class="h-5 w-5" />
+            </button>
+          </div>
+        </template>
 
+        <!-- ── CONVO MODE ─────────────────────────────────────────────────────── -->
+        <template v-else>
+          <div class="card flex flex-col items-center gap-8 py-10">
+
+            <!-- Last AI message bubble -->
+            <div
+              v-if="messages.length"
+              class="w-full max-w-md rounded-2xl border border-slate-200/60 bg-slate-50 px-6 py-4 text-center text-sm leading-relaxed text-slate-700 shadow-inner"
+            >
+              {{ messages.filter(m => m.role === 'assistant').at(-1)?.content }}
+            </div>
+
+            <!-- Orb + controls -->
+            <div class="flex flex-col items-center gap-5">
+
+              <!-- TTS model download progress -->
+              <div v-if="ttsLoading" class="flex flex-col items-center gap-3">
+                <div class="relative h-28 w-28">
+                  <svg class="h-28 w-28 -rotate-90" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="40" fill="none" stroke="#e2e8f0" stroke-width="8" />
+                    <circle
+                      cx="50" cy="50" r="40" fill="none"
+                      stroke="#0d5f6b" stroke-width="8" stroke-linecap="round"
+                      :stroke-dasharray="`${2 * Math.PI * 40}`"
+                      :stroke-dashoffset="`${2 * Math.PI * 40 * (1 - loadProgress / 100)}`"
+                      class="transition-all duration-300"
+                    />
+                  </svg>
+                  <span class="absolute inset-0 flex items-center justify-center text-sm font-bold text-[#0d5f6b]">
+                    {{ loadProgress }}%
+                  </span>
+                </div>
+                <p class="text-sm font-semibold text-slate-600">Downloading voice model…</p>
+                <p class="text-xs text-slate-400 text-center max-w-[200px]">Only happens once · ~82 MB · cached forever after</p>
+              </div>
+
+              <!-- Animated orb -->
+              <button
+                v-else
+                @click="toggleConvoMic"
+                class="relative h-28 w-28 rounded-full transition-transform duration-200 focus:outline-none hover:scale-105 active:scale-95"
+                :disabled="convoStatus === 'processing'"
+              >
+                <!-- Outer ping ring -->
+                <span
+                  class="absolute inset-0 rounded-full"
+                  :class="{
+                    'animate-ping bg-[#0d5f6b] opacity-20': convoStatus === 'listening',
+                    'animate-ping bg-emerald-500 opacity-20': convoStatus === 'speaking',
+                  }"
+                />
+                <!-- Inner filled circle -->
+                <span
+                  class="absolute inset-2 rounded-full transition-all duration-300"
+                  :class="{
+                    'shadow-lg shadow-[#0d5f6b]/30': convoStatus === 'listening',
+                    'shadow-lg shadow-emerald-500/30': convoStatus === 'speaking',
+                  }"
+                  :style="convoStatus === 'listening'
+                    ? 'background:linear-gradient(135deg,#0d5f6b,#0a4a54)'
+                    : convoStatus === 'speaking'
+                    ? 'background:linear-gradient(135deg,#059669,#0d9488)'
+                    : convoStatus === 'processing'
+                    ? 'background:#e2e8f0'
+                    : 'background:linear-gradient(135deg,#cbd5e1,#e2e8f0)'"
+                />
+                <!-- Icon inside orb -->
+                <span class="absolute inset-0 flex items-center justify-center">
+                  <svg
+                    v-if="convoStatus !== 'speaking' && convoStatus !== 'processing'"
+                    class="h-10 w-10 transition-colors duration-300"
+                    :class="convoStatus === 'listening' ? 'text-white' : 'text-slate-500'"
+                    viewBox="0 0 24 24" fill="currentColor"
+                  >
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2H3v2a9 9 0 0 0 8 8.94V23h2v-2.06A9 9 0 0 0 21 12v-2h-2z"/>
+                  </svg>
+                  <span v-else-if="convoStatus === 'speaking'" class="flex h-8 items-end gap-1">
+                    <span class="w-1.5 animate-bounce rounded-full bg-white" style="height:40%;animation-delay:0ms" />
+                    <span class="w-1.5 animate-bounce rounded-full bg-white" style="height:80%;animation-delay:100ms" />
+                    <span class="w-1.5 animate-bounce rounded-full bg-white" style="height:60%;animation-delay:200ms" />
+                    <span class="w-1.5 animate-bounce rounded-full bg-white" style="height:100%;animation-delay:80ms" />
+                    <span class="w-1.5 animate-bounce rounded-full bg-white" style="height:50%;animation-delay:160ms" />
+                  </span>
+                  <svg v-else class="h-9 w-9 animate-spin text-slate-400" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                  </svg>
+                </span>
+              </button>
+
+              <!-- Status label -->
+              <p class="h-5 text-sm font-semibold text-slate-500">{{ convoStatusLabel }}</p>
+
+              <!-- Live transcript -->
+              <p v-if="convoTranscript" class="max-w-xs text-center text-sm italic leading-relaxed text-slate-600">
+                "{{ convoTranscript }}"
+              </p>
+
+              <!-- Hint when idle -->
+              <p v-if="convoStatus === 'idle'" class="max-w-[220px] text-center text-xs leading-relaxed text-slate-400">
+                Tap the orb to speak — sends automatically after you pause
+              </p>
+            </div>
+
+            <!-- End conversation -->
+            <button
+              @click="endConvo"
+              class="btn btn-ghost rounded-xl px-5 py-2 text-xs text-slate-500 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+            >
+              End conversation
+            </button>
+          </div>
+        </template>
+
+      </div>
     </div>
-  </main>
+  </div>
 </template>

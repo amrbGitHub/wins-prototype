@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useAuth } from '../composables/useAuth.js'
 import { useApi }  from '../composables/useApi.js'
+import { User, Trophy, Star, Pencil, X, Save, ChevronRight } from 'lucide-vue-next'
 
 const props = defineProps({
   profile: { type: Object, default: null },
@@ -109,142 +110,196 @@ const displayName = computed(() => {
 </script>
 
 <template>
-  <main class="mx-auto max-w-2xl px-4 py-8 space-y-6">
+  <div class="min-h-screen" style="background:var(--page-bg)">
 
-    <!-- Header -->
-    <div class="flex items-center justify-between">
-      <h2 class="text-xl font-bold text-slate-800">My Profile</h2>
-      <button
-        v-if="!editing"
-        @click="startEdit"
-        class="rounded-xl border border-slate-200/70 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition shadow-sm"
-      >
-        Edit
-      </button>
-    </div>
+    <!-- ── Hero banner ────────────────────────────────────────────────────────── -->
+    <div class="relative overflow-hidden bg-slate-800">
+      <div class="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-white/5 blur-3xl"></div>
+      <div class="pointer-events-none absolute bottom-0 left-1/3 h-40 w-40 rounded-full bg-teal-500/10 blur-2xl"></div>
 
-    <!-- ── Stats ──────────────────────────────────────────────────────────────── -->
-    <div class="grid grid-cols-2 gap-4">
-      <div class="rounded-2xl border border-emerald-200/50 bg-gradient-to-br from-emerald-50 to-teal-50/40 p-5 shadow-sm">
-        <div class="text-3xl font-extrabold text-emerald-600">{{ stats.goalsMet }}</div>
-        <div class="text-xs font-bold text-emerald-700 uppercase tracking-wider mt-1">Goals Met</div>
-        <div class="text-xs text-emerald-600/70 mt-0.5">Across all months</div>
-      </div>
-      <div class="rounded-2xl border border-amber-200/50 bg-gradient-to-br from-amber-50 to-orange-50/40 p-5 shadow-sm">
-        <div class="text-3xl font-extrabold text-amber-600">{{ stats.totalWins }}</div>
-        <div class="text-xs font-bold text-amber-700 uppercase tracking-wider mt-1">Wins Captured</div>
-        <div class="text-xs text-amber-600/70 mt-0.5">From journal entries</div>
-      </div>
-    </div>
-
-    <!-- ── Profile card ───────────────────────────────────────────────────────── -->
-    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm overflow-hidden">
-
-      <!-- View mode -->
-      <div v-if="!editing" class="divide-y divide-slate-100">
-        <div class="px-6 py-5 flex items-center gap-4">
-          <div class="h-14 w-14 rounded-2xl bg-gradient-to-br from-[#0d5f6b] to-[#0a4a54] flex items-center justify-center shadow-md flex-shrink-0">
-            <span class="text-2xl font-bold text-white">{{ (profile?.firstName || user?.email || '?')[0].toUpperCase() }}</span>
+      <div class="relative mx-auto max-w-3xl px-6 py-8">
+        <div class="flex items-center justify-between gap-4">
+          <!-- Avatar + name -->
+          <div class="flex items-center gap-4">
+            <div
+              class="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl shadow-xl ring-4 ring-white/10"
+              style="background:linear-gradient(135deg,#0d5f6b,#0ea5e9)"
+            >
+              <span class="text-2xl font-extrabold text-white">{{ (profile?.firstName || user?.email || '?')[0].toUpperCase() }}</span>
+            </div>
+            <div>
+              <h1 class="text-xl font-extrabold text-white">{{ displayName }}</h1>
+              <p class="mt-0.5 text-sm text-slate-400">{{ user?.email }}</p>
+              <p v-if="profile?.username" class="mt-0.5 text-xs text-slate-500">@{{ profile.username }}</p>
+            </div>
           </div>
-          <div>
-            <p class="text-lg font-bold text-slate-800">{{ displayName }}</p>
-            <p class="text-sm text-slate-500">{{ user?.email }}</p>
-            <p v-if="profile?.username" class="text-xs text-slate-400 mt-0.5">@{{ profile.username }}</p>
-          </div>
-        </div>
 
-        <div class="px-6 py-4 grid grid-cols-2 gap-4">
-          <div>
-            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Learning Style</p>
-            <p class="text-sm text-slate-700 mt-1 font-medium">{{ learningLabels[profile?.learningStyle] || '—' }}</p>
-          </div>
-          <div>
-            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">AI Personality</p>
-            <p class="text-sm text-slate-700 mt-1 font-medium">{{ personalityLabels[profile?.aiPersonality] || '—' }}</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Edit mode -->
-      <form v-else @submit.prevent="save" class="px-6 py-6 space-y-5">
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">First name <span class="text-rose-400">*</span></label>
-            <input
-              v-model="form.firstName"
-              type="text"
-              class="mt-1.5 w-full rounded-2xl border border-slate-200/70 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0d5f6b]/30"
-            />
-          </div>
-          <div>
-            <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">Last name</label>
-            <input
-              v-model="form.lastName"
-              type="text"
-              class="mt-1.5 w-full rounded-2xl border border-slate-200/70 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0d5f6b]/30"
-            />
-          </div>
-        </div>
-        <div>
-          <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">Username</label>
-          <input
-            v-model="form.username"
-            type="text"
-            class="mt-1.5 w-full rounded-2xl border border-slate-200/70 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0d5f6b]/30"
-          />
-        </div>
-
-        <!-- Learning style -->
-        <div>
-          <label class="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Learning Style</label>
-          <div class="grid grid-cols-2 gap-2">
-            <button
-              v-for="s in learningStyles"
-              :key="s.value"
-              type="button"
-              @click="form.learningStyle = s.value"
-              class="text-left rounded-xl border-2 px-3 py-2.5 text-xs transition"
-              :class="form.learningStyle === s.value
-                ? 'border-[#0d5f6b] bg-[#0d5f6b]/5 text-[#0d5f6b] font-bold'
-                : 'border-slate-200/70 text-slate-600 hover:border-slate-300'"
-            >{{ s.label }}</button>
-          </div>
-        </div>
-
-        <!-- AI personality -->
-        <div>
-          <label class="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">AI Personality</label>
-          <div class="grid grid-cols-3 gap-2">
-            <button
-              v-for="p in personalities"
-              :key="p.value"
-              type="button"
-              @click="form.aiPersonality = p.value"
-              class="text-left rounded-xl border-2 px-3 py-2.5 text-xs transition"
-              :class="form.aiPersonality === p.value
-                ? 'border-[#0d5f6b] bg-[#0d5f6b]/5 text-[#0d5f6b] font-bold'
-                : 'border-slate-200/70 text-slate-600 hover:border-slate-300'"
-            >{{ p.label }}</button>
-          </div>
-        </div>
-
-        <p v-if="error" class="text-sm text-rose-500 bg-rose-50 rounded-xl px-3 py-2">{{ error }}</p>
-
-        <div class="flex gap-2 pt-1">
+          <!-- Edit button -->
           <button
-            type="button"
+            v-if="!editing"
+            @click="startEdit"
+            class="flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white ring-1 ring-white/20 transition hover:bg-white/20"
+          >
+            <Pencil class="h-4 w-4" />
+            Edit profile
+          </button>
+          <button
+            v-else
             @click="cancelEdit"
-            class="rounded-2xl border border-slate-200/70 px-5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
-          >Cancel</button>
-          <button
-            type="submit"
-            :disabled="saving"
-            class="flex-1 rounded-2xl bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] py-2.5 text-sm font-bold text-white shadow-md disabled:opacity-40 transition"
-          >{{ saving ? 'Saving…' : 'Save changes' }}</button>
+            class="flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white ring-1 ring-white/20 transition hover:bg-white/20"
+          >
+            <X class="h-4 w-4" />
+            Cancel
+          </button>
         </div>
-      </form>
-
+      </div>
     </div>
 
-  </main>
+    <div class="mx-auto max-w-3xl space-y-6 px-4 py-8">
+
+      <!-- ── Stats ──────────────────────────────────────────────────────────── -->
+      <div class="grid grid-cols-2 gap-4">
+        <div class="card p-6">
+          <div class="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100">
+            <Trophy class="h-5 w-5 text-emerald-600" />
+          </div>
+          <div class="text-3xl font-extrabold text-emerald-600">{{ stats.goalsMet }}</div>
+          <div class="mt-0.5 text-xs font-bold uppercase tracking-wider text-emerald-700">Goals Met</div>
+          <div class="mt-0.5 text-xs text-slate-400">Across all months</div>
+        </div>
+        <div class="card p-6">
+          <div class="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100">
+            <Star class="h-5 w-5 text-amber-600" />
+          </div>
+          <div class="text-3xl font-extrabold text-amber-600">{{ stats.totalWins }}</div>
+          <div class="mt-0.5 text-xs font-bold uppercase tracking-wider text-amber-700">Wins Captured</div>
+          <div class="mt-0.5 text-xs text-slate-400">From journal entries</div>
+        </div>
+      </div>
+
+      <!-- ── Profile card: VIEW mode ─────────────────────────────────────────── -->
+      <div v-if="!editing" class="card overflow-hidden animate-fade-up">
+        <div class="border-b border-slate-100 px-6 py-5">
+          <h2 class="font-bold text-slate-800">Profile details</h2>
+        </div>
+        <div class="divide-y divide-slate-100">
+          <div class="grid grid-cols-2 gap-4 px-6 py-4">
+            <div>
+              <p class="text-xs font-bold uppercase tracking-wider text-slate-400">First name</p>
+              <p class="mt-1 text-sm font-semibold text-slate-800">{{ profile?.firstName || '—' }}</p>
+            </div>
+            <div>
+              <p class="text-xs font-bold uppercase tracking-wider text-slate-400">Last name</p>
+              <p class="mt-1 text-sm font-semibold text-slate-800">{{ profile?.lastName || '—' }}</p>
+            </div>
+          </div>
+          <div class="px-6 py-4">
+            <p class="text-xs font-bold uppercase tracking-wider text-slate-400">Username</p>
+            <p class="mt-1 text-sm font-semibold text-slate-800">{{ profile?.username ? '@' + profile.username : '—' }}</p>
+          </div>
+          <div class="grid grid-cols-2 gap-4 px-6 py-4">
+            <div>
+              <p class="text-xs font-bold uppercase tracking-wider text-slate-400">Learning Style</p>
+              <p class="mt-1 text-sm font-semibold text-slate-800">{{ learningLabels[profile?.learningStyle] || '—' }}</p>
+            </div>
+            <div>
+              <p class="text-xs font-bold uppercase tracking-wider text-slate-400">AI Personality</p>
+              <p class="mt-1 text-sm font-semibold text-slate-800">{{ personalityLabels[profile?.aiPersonality] || '—' }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Profile card: EDIT mode ─────────────────────────────────────────── -->
+      <div v-else class="card overflow-hidden animate-fade-up">
+        <div class="border-b border-slate-100 px-6 py-5">
+          <h2 class="font-bold text-slate-800">Edit profile</h2>
+        </div>
+
+        <form @submit.prevent="save" class="space-y-6 px-6 py-6">
+          <!-- Name fields -->
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-400">
+                First name <span class="text-rose-400">*</span>
+              </label>
+              <input v-model="form.firstName" type="text" class="input" placeholder="Jane" />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-400">Last name</label>
+              <input v-model="form.lastName" type="text" class="input" placeholder="Smith" />
+            </div>
+          </div>
+
+          <!-- Username -->
+          <div>
+            <label class="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-400">Username</label>
+            <input v-model="form.username" type="text" class="input" placeholder="janesmith" />
+          </div>
+
+          <!-- Learning style -->
+          <div>
+            <label class="mb-3 block text-xs font-bold uppercase tracking-wider text-slate-400">Learning style</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                v-for="s in learningStyles"
+                :key="s.value"
+                type="button"
+                @click="form.learningStyle = s.value"
+                class="rounded-xl border-2 px-4 py-3 text-left transition-all duration-150"
+                :class="form.learningStyle === s.value
+                  ? 'border-[#0d5f6b] bg-[#0d5f6b]/5 text-[#0d5f6b]'
+                  : 'border-slate-200 text-slate-600 hover:border-slate-300 bg-white'"
+              >
+                <span class="block text-xs font-bold">{{ s.label }}</span>
+                <span class="mt-0.5 block text-[11px] opacity-70">{{ s.desc }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- AI personality -->
+          <div>
+            <label class="mb-3 block text-xs font-bold uppercase tracking-wider text-slate-400">AI coach personality</label>
+            <div class="grid grid-cols-3 gap-2">
+              <button
+                v-for="p in personalities"
+                :key="p.value"
+                type="button"
+                @click="form.aiPersonality = p.value"
+                class="rounded-xl border-2 px-3 py-3 text-left transition-all duration-150"
+                :class="form.aiPersonality === p.value
+                  ? 'border-[#0d5f6b] bg-[#0d5f6b]/5 text-[#0d5f6b]'
+                  : 'border-slate-200 text-slate-600 hover:border-slate-300 bg-white'"
+              >
+                <span class="block text-xs font-bold">{{ p.label }}</span>
+                <span class="mt-0.5 block text-[11px] opacity-60 leading-tight">{{ p.desc }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Error -->
+          <div v-if="error" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ error }}</div>
+
+          <!-- Actions -->
+          <div class="flex gap-3 pt-1">
+            <button
+              type="button"
+              @click="cancelEdit"
+              class="btn btn-ghost flex-none rounded-xl"
+            >Cancel</button>
+            <button
+              type="submit"
+              :disabled="saving"
+              class="btn btn-primary flex-1 justify-center rounded-xl disabled:opacity-50"
+            >
+              <span v-if="saving" class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
+              <Save v-else class="h-4 w-4" />
+              {{ saving ? 'Saving…' : 'Save changes' }}
+            </button>
+          </div>
+        </form>
+      </div>
+
+    </div>
+  </div>
 </template>
