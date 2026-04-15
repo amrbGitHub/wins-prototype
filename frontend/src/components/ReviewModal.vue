@@ -1,6 +1,9 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
 import { useApi } from '../composables/useApi.js'
+import {
+  ClipboardList, X, Send, TrendingUp, CheckCircle2, Lightbulb, ChevronRight,
+} from 'lucide-vue-next'
 
 const props = defineProps({
   goals: { type: Array, required: true },
@@ -160,7 +163,6 @@ async function applyProgressUpdates(updates) {
   }))
 
   if (applied.length) {
-    // Insert a system notice into the chat so the user can see what changed
     messages.value.push({
       role:    'system',
       content: applied.map(u => `${u.title} → ${u.progress}%`).join(' · '),
@@ -196,160 +198,181 @@ async function saveReflection() {
 <template>
   <!-- Backdrop -->
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4" @click.self="!done && emit('close')">
-    <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" @click="!done && emit('close')" />
+    <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-md" @click="!done && emit('close')" />
 
     <!-- Modal panel -->
-    <div class="relative z-10 w-full max-w-2xl flex flex-col bg-white rounded-3xl shadow-2xl overflow-hidden" style="max-height: 90vh">
+    <div
+      class="relative z-10 w-full max-w-2xl flex flex-col rounded-3xl overflow-hidden animate-scale-in"
+      style="max-height:90vh; box-shadow: var(--shadow-modal)"
+    >
 
-      <!-- Header -->
-      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
-        <div class="flex items-center gap-3">
-          <div class="h-9 w-9 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm">
-            <svg class="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div>
-            <h2 class="text-base font-bold text-slate-800">Weekly Progress Review</h2>
-            <p class="text-xs text-slate-500">{{ monthLabel }} · {{ goals.length }} {{ goals.length === 1 ? 'goal' : 'goals' }}</p>
-          </div>
-        </div>
-        <button
-          v-if="!saving"
-          @click="emit('close')"
-          class="rounded-xl p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
-        >
-          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
+      <!-- ── Gradient header ─────────────────────────────────────────────────── -->
+      <div class="shrink-0 relative overflow-hidden px-6 py-5"
+           style="background: linear-gradient(135deg, #b45309 0%, #d97706 45%, #f59e0b 100%)">
+        <!-- Decorative circles -->
+        <div class="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10" />
+        <div class="pointer-events-none absolute -left-6 -bottom-6 h-24 w-24 rounded-full bg-white/8" />
+        <div class="pointer-events-none absolute inset-0"
+             style="background: radial-gradient(ellipse at 90% 40%, rgba(255,255,255,0.18) 0%, transparent 60%)" />
 
-      <!-- Goals being reviewed -->
-      <div class="px-6 py-2.5 bg-slate-50/80 border-b border-slate-100 flex flex-wrap gap-1.5 shrink-0">
-        <span
-          v-for="goal in goals"
-          :key="goal.id"
-          class="rounded-full bg-white border border-slate-200/80 px-2.5 py-0.5 text-xs font-medium text-slate-600 shadow-sm"
-        >{{ goal.title }}</span>
-      </div>
-
-      <!-- Error -->
-      <p v-if="error" class="mx-6 mt-3 text-sm text-rose-500 bg-rose-50 border border-rose-100 rounded-xl px-4 py-2 shrink-0">{{ error }}</p>
-
-      <!-- Chat messages -->
-      <div ref="messagesEl" class="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3 min-h-0">
-        <template v-for="(msg, i) in messages" :key="i">
-          <!-- System notice: progress updated -->
-          <div v-if="msg.role === 'system'" class="flex justify-center">
-            <div class="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 shadow-sm">
-              <svg class="h-3 w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-              </svg>
-              Progress updated: {{ msg.content }}
+        <div class="relative flex items-start justify-between">
+          <div class="flex items-center gap-3">
+            <div class="h-11 w-11 rounded-2xl bg-white/20 backdrop-blur-sm border border-white/30 flex items-center justify-center shadow-lg">
+              <ClipboardList class="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h2 class="text-base font-bold text-white">Monthly Progress Review</h2>
+              <p class="text-xs text-amber-100/80">{{ monthLabel }} · {{ goals.length }} {{ goals.length === 1 ? 'goal' : 'goals' }}</p>
             </div>
           </div>
-
-          <!-- Normal chat messages -->
-          <div
-            v-else
-            class="flex"
-            :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
-          >
-            <div v-if="msg.role === 'assistant'" class="mr-2 mt-1 h-7 w-7 shrink-0 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm">
-              <svg class="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div
-              class="max-w-[78%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
-              :class="msg.role === 'user'
-                ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] text-white rounded-br-sm shadow-md'
-                : 'bg-white border border-slate-200/70 text-slate-700 rounded-bl-sm shadow-sm'"
-            >{{ msg.content }}</div>
-          </div>
-        </template>
-
-        <!-- Typing indicator -->
-        <div v-if="loading" class="flex justify-start">
-          <div class="mr-2 mt-1 h-7 w-7 shrink-0 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm">
-            <svg class="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div class="bg-white border border-slate-200/70 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm flex gap-1.5 items-center">
-            <span class="h-2 w-2 rounded-full bg-slate-300 animate-bounce" style="animation-delay:0ms" />
-            <span class="h-2 w-2 rounded-full bg-slate-300 animate-bounce" style="animation-delay:160ms" />
-            <span class="h-2 w-2 rounded-full bg-slate-300 animate-bounce" style="animation-delay:320ms" />
-          </div>
-        </div>
-
-        <!-- Evaluation card (shown when done) -->
-        <div v-if="done && evaluation" class="mt-2 rounded-2xl border border-amber-200/60 bg-gradient-to-br from-amber-50 to-orange-50/40 p-5 shadow-sm">
-          <div class="flex items-center gap-2 mb-3">
-            <svg class="h-5 w-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
-            </svg>
-            <h3 class="text-sm font-bold text-amber-800">Your Progress Evaluation</h3>
-            <span v-if="saving" class="ml-auto text-xs text-amber-600 animate-pulse">Saving…</span>
-            <span v-else class="ml-auto flex items-center gap-1 text-xs text-emerald-600 font-semibold">
-              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-              </svg>
-              Saved
-            </span>
-          </div>
-          <p class="text-sm text-amber-900 leading-relaxed whitespace-pre-wrap">{{ evaluation }}</p>
-
-          <div v-if="suggestions.length" class="mt-4 pt-4 border-t border-amber-200/60">
-            <h4 class="text-xs font-bold text-amber-700 uppercase tracking-wider mb-2.5">Suggestions to keep you on track</h4>
-            <ul class="flex flex-col gap-1.5">
-              <li
-                v-for="(s, i) in suggestions"
-                :key="i"
-                class="flex items-start gap-2 text-sm text-amber-800"
-              >
-                <span class="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-amber-200/60 flex items-center justify-center text-xs font-bold text-amber-700">{{ i + 1 }}</span>
-                {{ s }}
-              </li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      <!-- Input row (hidden when done) -->
-      <div v-if="!done" class="px-6 py-4 border-t border-slate-100 shrink-0">
-        <div class="flex gap-2 items-end">
-          <textarea
-            v-model="input"
-            @keydown="onKeydown"
-            rows="2"
-            placeholder="Type your answer… (Enter to send)"
-            :disabled="loading"
-            class="flex-1 resize-none rounded-2xl border border-slate-200/70 bg-slate-50 px-4 py-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400/40 focus:border-amber-400/60 disabled:opacity-50 placeholder:text-slate-400"
-          />
           <button
-            @click="sendMessage"
-            :disabled="loading || !input.trim()"
-            class="rounded-2xl bg-gradient-to-r from-amber-400 to-orange-500 p-3 text-white shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-40"
+            v-if="!saving"
+            @click="emit('close')"
+            class="rounded-xl p-1.5 text-white/60 hover:text-white hover:bg-white/15 transition-all"
           >
-            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-            </svg>
+            <X class="h-5 w-5" />
           </button>
         </div>
+
+        <!-- Goal chips -->
+        <div class="relative flex flex-wrap gap-1.5 mt-4">
+          <span
+            v-for="goal in goals"
+            :key="goal.id"
+            class="inline-flex items-center rounded-full bg-white/20 backdrop-blur-sm border border-white/30 px-3 py-1 text-xs font-medium text-white"
+          >{{ goal.title }}</span>
+        </div>
       </div>
 
-      <!-- Done footer -->
-      <div v-if="done" class="px-6 py-4 border-t border-slate-100 flex justify-end shrink-0">
-        <button
-          @click="emit('close')"
-          class="rounded-2xl bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] px-6 py-2.5 text-sm font-semibold text-white shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5"
+      <!-- ── Body ───────────────────────────────────────────────────────────── -->
+      <div class="flex flex-col flex-1 min-h-0 bg-white">
+
+        <!-- Error banner -->
+        <p v-if="error" class="mx-6 mt-3 text-sm text-rose-600 bg-rose-50 border border-rose-100 rounded-xl px-4 py-2 shrink-0">
+          {{ error }}
+        </p>
+
+        <!-- Chat messages -->
+        <div
+          ref="messagesEl"
+          class="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3 min-h-0"
+          style="background: var(--page-bg)"
         >
-          View Reflections →
-        </button>
-      </div>
+          <template v-for="(msg, i) in messages" :key="i">
 
+            <!-- System notice: progress updated -->
+            <div v-if="msg.role === 'system'" class="flex justify-center">
+              <div class="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 shadow-sm">
+                <TrendingUp class="h-3.5 w-3.5 shrink-0" />
+                Progress updated: {{ msg.content }}
+              </div>
+            </div>
+
+            <!-- Chat bubble -->
+            <div
+              v-else
+              class="flex animate-fade-up"
+              :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
+            >
+              <!-- AI avatar -->
+              <div
+                v-if="msg.role === 'assistant'"
+                class="mr-2 mt-1 shrink-0 h-7 w-7 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm"
+              >
+                <ClipboardList class="h-3.5 w-3.5 text-white" />
+              </div>
+
+              <div
+                class="max-w-[78%] whitespace-pre-wrap"
+                :class="msg.role === 'user' ? 'bubble-user' : 'bubble-ai'"
+              >{{ msg.content }}</div>
+            </div>
+          </template>
+
+          <!-- Typing indicator -->
+          <div v-if="loading" class="flex justify-start">
+            <div class="mr-2 mt-1 shrink-0 h-7 w-7 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm">
+              <ClipboardList class="h-3.5 w-3.5 text-white" />
+            </div>
+            <div class="bubble-ai flex items-center gap-1.5">
+              <span class="typing-dot" />
+              <span class="typing-dot" />
+              <span class="typing-dot" />
+            </div>
+          </div>
+
+          <!-- Evaluation card -->
+          <div
+            v-if="done && evaluation"
+            class="card mt-2 p-5 animate-fade-up"
+            style="background: linear-gradient(135deg, #fffbeb 0%, #fff7ed 100%); border-color: rgba(251,191,36,0.3)"
+          >
+            <div class="flex items-center gap-2.5 mb-3">
+              <div class="h-8 w-8 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm">
+                <ClipboardList class="h-4 w-4 text-white" />
+              </div>
+              <h3 class="text-sm font-bold text-amber-900">Your Progress Evaluation</h3>
+              <span v-if="saving" class="ml-auto text-xs text-amber-600 animate-pulse">Saving…</span>
+              <span v-else class="ml-auto flex items-center gap-1 text-xs text-emerald-600 font-semibold">
+                <CheckCircle2 class="h-3.5 w-3.5" />
+                Saved
+              </span>
+            </div>
+            <p class="text-sm text-amber-900 leading-relaxed whitespace-pre-wrap">{{ evaluation }}</p>
+
+            <div v-if="suggestions.length" class="mt-4 pt-4 border-t border-amber-200/50">
+              <div class="flex items-center gap-1.5 mb-3">
+                <Lightbulb class="h-3.5 w-3.5 text-amber-500" />
+                <h4 class="text-xs font-bold text-amber-700 uppercase tracking-wider">Suggestions to keep you on track</h4>
+              </div>
+              <ul class="flex flex-col gap-2">
+                <li
+                  v-for="(s, si) in suggestions"
+                  :key="si"
+                  class="flex items-start gap-2.5 text-sm text-amber-900"
+                >
+                  <span class="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-amber-200/70 flex items-center justify-center text-xs font-bold text-amber-700">{{ si + 1 }}</span>
+                  {{ s }}
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Input row ───────────────────────────────────────────────────── -->
+        <div v-if="!done" class="px-6 py-4 border-t border-slate-100 shrink-0">
+          <div class="flex gap-2.5 items-end">
+            <textarea
+              v-model="input"
+              @keydown="onKeydown"
+              rows="2"
+              placeholder="Type your answer… (Enter to send)"
+              :disabled="loading"
+              class="input flex-1 resize-none"
+              style="border-radius: 14px; padding: 11px 16px"
+            />
+            <button
+              @click="sendMessage"
+              :disabled="loading || !input.trim()"
+              class="btn btn-primary disabled:opacity-40"
+              style="padding: 11px 13px; border-radius: 14px"
+            >
+              <Send class="h-5 w-5" />
+            </button>
+          </div>
+          <p class="mt-1.5 text-center text-xs text-slate-400">Press <kbd class="rounded bg-slate-100 px-1 py-0.5 text-[10px] font-medium text-slate-500">Enter</kbd> to send, <kbd class="rounded bg-slate-100 px-1 py-0.5 text-[10px] font-medium text-slate-500">Shift+Enter</kbd> for new line</p>
+        </div>
+
+        <!-- ── Done footer ─────────────────────────────────────────────────── -->
+        <div v-if="done" class="px-6 py-4 border-t border-slate-100 flex items-center justify-between shrink-0">
+          <p class="text-sm text-slate-500">Your reflection has been saved.</p>
+          <button @click="emit('close')" class="btn btn-primary gap-1.5">
+            View Reflections
+            <ChevronRight class="h-4 w-4" />
+          </button>
+        </div>
+
+      </div>
     </div>
   </div>
 </template>

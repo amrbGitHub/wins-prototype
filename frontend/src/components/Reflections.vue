@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useApi } from '../composables/useApi.js'
+import { Brain, Lightbulb, ChevronDown, Calendar, RefreshCw, Target } from 'lucide-vue-next'
 
 const { apiFetch } = useApi()
 
@@ -43,124 +44,142 @@ function toggle(id) {
 </script>
 
 <template>
-  <main class="mx-auto max-w-3xl px-4 py-8">
+  <div class="min-h-screen" style="background:var(--page-bg)">
 
-    <!-- Header -->
-    <div class="mb-8 flex items-center justify-between gap-4">
-      <div>
-        <h2 class="text-xl font-bold text-slate-800">Reflections</h2>
-        <p class="text-sm text-slate-500 mt-0.5">Your weekly progress evaluations</p>
-      </div>
-      <button
-        @click="loadReflections"
-        :disabled="loading"
-        class="rounded-xl border border-slate-200/70 bg-white p-2 hover:bg-slate-50 transition shadow-sm disabled:opacity-40"
-        title="Refresh"
-      >
-        <svg class="h-4 w-4 text-slate-500" :class="loading ? 'animate-spin' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-        </svg>
-      </button>
-    </div>
+    <!-- ── Hero Banner ──────────────────────────────────────────────────────────── -->
+    <div class="relative overflow-hidden" style="background:linear-gradient(135deg,#be185d 0%,#e11d48 60%,#f43f5e 100%)">
+      <div class="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/5 blur-3xl"></div>
+      <div class="pointer-events-none absolute -bottom-8 left-1/4 h-40 w-40 rounded-full bg-white/5 blur-2xl"></div>
 
-    <!-- Error -->
-    <p v-if="error" class="mb-4 text-sm text-rose-500 bg-rose-50 border border-rose-100 rounded-xl px-4 py-2.5">{{ error }}</p>
-
-    <!-- Loading -->
-    <div v-if="loading" class="text-center text-slate-400 py-16 text-sm">Loading reflections…</div>
-
-    <!-- Empty -->
-    <div v-else-if="!reflections.length" class="flex flex-col items-center gap-4 py-16 text-center">
-      <div class="h-16 w-16 rounded-2xl bg-amber-50 flex items-center justify-center">
-        <svg class="h-8 w-8 text-amber-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
-        </svg>
-      </div>
-      <div>
-        <p class="font-semibold text-slate-600 text-sm">No reflections yet</p>
-        <p class="text-slate-400 text-xs mt-1">When you complete a weekly review, your evaluations will appear here.</p>
-      </div>
-    </div>
-
-    <!-- Reflections list -->
-    <div v-else class="flex flex-col gap-4">
-      <div
-        v-for="r in reflections"
-        :key="r.id"
-        class="rounded-2xl border border-slate-200/60 bg-white shadow-sm overflow-hidden"
-      >
-        <!-- Card header (always visible, clickable to expand) -->
-        <button
-          @click="toggle(r.id)"
-          class="w-full flex items-start justify-between gap-4 px-5 py-4 hover:bg-slate-50/60 transition text-left"
-        >
-          <div class="flex items-center gap-3 min-w-0">
-            <div class="h-9 w-9 shrink-0 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm">
-              <svg class="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+      <div class="relative mx-auto max-w-4xl px-6 py-10">
+        <div class="flex items-center justify-between gap-4">
+          <div class="flex items-center gap-5">
+            <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/15 shadow-lg backdrop-blur-sm ring-1 ring-white/20">
+              <Brain class="h-7 w-7 text-white" />
             </div>
-            <div class="min-w-0">
-              <p class="text-sm font-bold text-slate-800">{{ monthLabel(r.month) }} Goals Review</p>
-              <p class="text-xs text-slate-400 mt-0.5">{{ formatDate(r.createdAt) }}</p>
+            <div>
+              <h1 class="text-2xl font-extrabold tracking-tight text-white drop-shadow-sm">Reflections</h1>
+              <p class="mt-0.5 text-sm font-medium text-rose-200">Your AI-powered weekly progress evaluations.</p>
             </div>
           </div>
-
-          <div class="flex items-center gap-2 shrink-0">
-            <!-- Goal count pill -->
-            <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-500">
-              {{ r.goalsSnapshot?.length ?? 0 }} {{ (r.goalsSnapshot?.length ?? 0) === 1 ? 'goal' : 'goals' }}
-            </span>
-            <!-- Chevron -->
-            <svg
-              class="h-4 w-4 text-slate-400 transition-transform duration-200"
-              :class="expanded.has(r.id) ? 'rotate-180' : ''"
-              fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
-            >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </div>
-        </button>
-
-        <!-- Expanded content -->
-        <div v-if="expanded.has(r.id)" class="border-t border-slate-100 px-5 py-4 flex flex-col gap-4">
-
-          <!-- Goals reviewed -->
-          <div>
-            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Goals reviewed</p>
-            <div class="flex flex-wrap gap-1.5">
-              <span
-                v-for="g in r.goalsSnapshot"
-                :key="g.id ?? g.title"
-                class="rounded-full border border-slate-200/80 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-600"
-              >{{ g.title }}</span>
-            </div>
-          </div>
-
-          <!-- Evaluation -->
-          <div>
-            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Evaluation</p>
-            <p class="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{{ r.evaluation }}</p>
-          </div>
-
-          <!-- Suggestions -->
-          <div v-if="r.suggestions?.length">
-            <p class="text-xs font-semibold text-amber-600 uppercase tracking-wider mb-2.5">Suggestions</p>
-            <ul class="flex flex-col gap-1.5">
-              <li
-                v-for="(s, i) in r.suggestions"
-                :key="i"
-                class="flex items-start gap-2 text-sm text-slate-700"
-              >
-                <span class="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-amber-100 flex items-center justify-center text-xs font-bold text-amber-600">{{ i + 1 }}</span>
-                {{ s }}
-              </li>
-            </ul>
-          </div>
-
+          <button
+            @click="loadReflections"
+            :disabled="loading"
+            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15 text-white ring-1 ring-white/20 transition hover:bg-white/25 disabled:opacity-50"
+            title="Refresh"
+          >
+            <RefreshCw class="h-4 w-4" :class="loading ? 'animate-spin' : ''" />
+          </button>
         </div>
       </div>
     </div>
 
-  </main>
+    <div class="mx-auto max-w-4xl space-y-5 px-4 py-8">
+
+      <!-- Error -->
+      <div v-if="error" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ error }}</div>
+
+      <!-- Loading -->
+      <div v-if="loading" class="flex flex-col items-center gap-4 py-20 text-center">
+        <div class="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-rose-500"></div>
+        <p class="text-sm text-slate-400">Loading reflections…</p>
+      </div>
+
+      <!-- Empty state -->
+      <div v-else-if="!reflections.length" class="card flex flex-col items-center gap-5 py-20 text-center animate-fade-up">
+        <div class="flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-50">
+          <Brain class="h-8 w-8 text-rose-300" />
+        </div>
+        <div>
+          <p class="font-bold text-slate-700">No reflections yet</p>
+          <p class="mt-1 max-w-xs text-sm text-slate-400">When you complete a weekly review in the Planner, your evaluations will appear here.</p>
+        </div>
+      </div>
+
+      <!-- Reflections list -->
+      <div v-else class="stagger flex flex-col gap-4">
+        <div
+          v-for="r in reflections"
+          :key="r.id"
+          class="card card-hover animate-fade-up overflow-hidden"
+        >
+          <!-- Card header — always visible -->
+          <button
+            @click="toggle(r.id)"
+            class="flex w-full items-center justify-between gap-4 px-6 py-5 text-left transition hover:bg-slate-50/60"
+          >
+            <div class="flex min-w-0 items-center gap-4">
+              <!-- Month icon -->
+              <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 to-pink-600 shadow-md shadow-rose-500/25">
+                <Calendar class="h-5 w-5 text-white" />
+              </div>
+              <div class="min-w-0">
+                <p class="font-bold text-slate-800">{{ monthLabel(r.month) }} Review</p>
+                <p class="mt-0.5 text-xs text-slate-400">{{ formatDate(r.createdAt) }}</p>
+              </div>
+            </div>
+
+            <div class="flex shrink-0 items-center gap-2">
+              <span class="hidden rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500 sm:inline-flex">
+                {{ r.goalsSnapshot?.length ?? 0 }} {{ (r.goalsSnapshot?.length ?? 0) === 1 ? 'goal' : 'goals' }}
+              </span>
+              <div
+                class="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 transition-all duration-200"
+                :class="expanded.has(r.id) ? 'rotate-180 bg-rose-100' : ''"
+              >
+                <ChevronDown class="h-4 w-4 text-slate-500" :class="expanded.has(r.id) ? '!text-rose-600' : ''" />
+              </div>
+            </div>
+          </button>
+
+          <!-- Expanded content -->
+          <div v-if="expanded.has(r.id)" class="border-t border-slate-100 px-6 py-5 flex flex-col gap-5">
+
+            <!-- Goals reviewed -->
+            <div v-if="r.goalsSnapshot?.length">
+              <p class="mb-2.5 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-400">
+                <Target class="h-3.5 w-3.5" />
+                Goals reviewed
+              </p>
+              <div class="flex flex-wrap gap-2">
+                <span
+                  v-for="g in r.goalsSnapshot"
+                  :key="g.id ?? g.title"
+                  class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600"
+                >{{ g.title }}</span>
+              </div>
+            </div>
+
+            <!-- Evaluation -->
+            <div>
+              <p class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">Evaluation</p>
+              <div class="rounded-xl border-l-4 border-rose-300 bg-rose-50/50 px-4 py-3">
+                <p class="text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">{{ r.evaluation }}</p>
+              </div>
+            </div>
+
+            <!-- Suggestions -->
+            <div v-if="r.suggestions?.length">
+              <p class="mb-3 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-amber-600">
+                <Lightbulb class="h-3.5 w-3.5" />
+                Suggestions
+              </p>
+              <ul class="flex flex-col gap-2">
+                <li
+                  v-for="(s, i) in r.suggestions"
+                  :key="i"
+                  class="flex items-start gap-3 rounded-xl bg-amber-50/70 px-4 py-3 text-sm text-slate-700"
+                >
+                  <span class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-bold text-amber-600">{{ i + 1 }}</span>
+                  {{ s }}
+                </li>
+              </ul>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
 </template>
