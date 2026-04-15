@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useSpeech } from '../composables/useSpeech.js'
 import { useApi } from '../composables/useApi.js'
 import MicButton from './MicButton.vue'
+import { BookOpen, Send, Trash2, Star, ChevronDown, Sparkles } from 'lucide-vue-next'
 
 const { apiFetch, apiFetchPublic } = useApi()
 
@@ -139,227 +140,244 @@ const typePillClass = {
 </script>
 
 <template>
-  <div class="mx-auto max-w-6xl px-4 py-6 space-y-6">
+  <div class="min-h-screen" style="background:var(--page-bg)">
 
-    <!-- New entry form -->
-    <div class="relative overflow-hidden rounded-3xl border border-slate-200/60 bg-white shadow-lg shadow-slate-200/30">
-      <!-- Gradient background -->
-      <div class="absolute inset-0 bg-gradient-to-br from-white via-slate-50/30 to-teal-50/10"></div>
-      
-      <div class="relative border-b border-slate-100/60 px-6 py-5">
-        <div class="flex items-center gap-3">
-          <div class="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-[#0d5f6b] to-[#0a4a54] shadow-lg shadow-[#0d5f6b]/20">
-            <svg class="h-5 w-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-            </svg>
+    <!-- ── Hero Banner ──────────────────────────────────────────────────────────── -->
+    <div class="relative overflow-hidden" style="background:linear-gradient(135deg,#7c3aed 0%,#6d28d9 50%,#5b21b6 100%)">
+      <!-- Decorative blobs -->
+      <div class="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-white/5 blur-3xl"></div>
+      <div class="pointer-events-none absolute -bottom-10 left-1/3 h-48 w-48 rounded-full bg-white/5 blur-2xl"></div>
+      <div class="pointer-events-none absolute right-1/4 top-1/2 h-32 w-32 rounded-full bg-violet-300/10 blur-xl"></div>
+
+      <div class="relative mx-auto max-w-4xl px-6 py-10">
+        <div class="flex items-center gap-5">
+          <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/15 shadow-lg backdrop-blur-sm ring-1 ring-white/20">
+            <BookOpen class="h-7 w-7 text-white" />
           </div>
           <div>
-            <h2 class="text-lg font-bold text-slate-800">New journal entry</h2>
-            <p class="text-sm text-slate-500">Jot down what happened — I'll pull out the wins automatically.</p>
+            <h1 class="text-2xl font-extrabold tracking-tight text-white drop-shadow-sm">Journal</h1>
+            <p class="mt-0.5 text-sm font-medium text-violet-200">Write daily notes — AI finds the wins automatically.</p>
           </div>
         </div>
-      </div>
-
-      <div class="relative space-y-5 px-6 py-6">
-        <!-- Date + type row -->
-        <div class="flex flex-wrap items-end gap-4">
-          <div>
-            <label class="text-xs font-bold uppercase tracking-wider text-slate-400">Date</label>
-            <input
-              v-model="entryDate"
-              type="date"
-              class="mt-2 block rounded-2xl border border-slate-200/60 bg-white/80 px-4 py-2.5 text-sm shadow-sm
-                     focus:border-[#0d5f6b]/40 focus:ring-4 focus:ring-[#0d5f6b]/10 focus:outline-none transition"
-            />
-          </div>
-
-          <div>
-            <label class="text-xs font-bold uppercase tracking-wider text-slate-400">Type</label>
-            <div class="mt-2 flex rounded-2xl border border-slate-200/60 overflow-hidden shadow-sm">
-              <button
-                @click="entryType = 'daily'"
-                class="px-5 py-2.5 text-sm font-semibold transition-all duration-200"
-                :class="entryType === 'daily'
-                  ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] text-white'
-                  : 'bg-white text-slate-600 hover:bg-slate-50'"
-              >
-                Daily
-              </button>
-              <button
-                @click="entryType = 'weekly'"
-                class="px-5 py-2.5 text-sm font-semibold transition-all duration-200"
-                :class="entryType === 'weekly'
-                  ? 'bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] text-white'
-                  : 'bg-white text-slate-600 hover:bg-slate-50'"
-              >
-                Weekly recap
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Text area + mic -->
-        <div>
-          <div class="flex items-center justify-between mb-3">
-            <label class="text-sm font-bold text-slate-700">
-              {{ entryType === 'weekly' ? 'How did the week go?' : 'What happened today?' }}
-            </label>
-            <MicButton
-              :listening="isListening"
-              :supported="speechSupported"
-              @click="toggleMic"
-            />
-          </div>
-          <textarea
-            v-model="entryText"
-            rows="6"
-            class="w-full rounded-2xl border border-slate-200/60 bg-white/80 px-4 py-3 text-sm shadow-sm
-                   focus:border-[#0d5f6b]/40 focus:ring-4 focus:ring-[#0d5f6b]/10 focus:outline-none transition"
-            :class="isListening ? 'border-[#0d5f6b]/40 ring-4 ring-[#0d5f6b]/10' : ''"
-            :placeholder="entryType === 'weekly'
-              ? 'What went well this week? Any wins worth celebrating? Who stood out?'
-              : 'What happened today? Any small wins, breakthroughs, or moments worth noting?'"
-          />
-          <p v-if="isListening" class="mt-2 flex items-center gap-2 text-sm text-[#0d5f6b] font-semibold">
-            <span class="h-2.5 w-2.5 rounded-full bg-[#0d5f6b] animate-pulse"></span>
-            Listening — speak now, click the mic again to stop
-          </p>
-        </div>
-
-        <div v-if="errorMsg" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3.5 text-sm text-rose-800">
-          <span class="font-bold">Error:</span> {{ errorMsg }}
-        </div>
-
-        <button
-          @click="saveAndAnalyze"
-          :disabled="loading"
-          class="inline-flex w-full items-center justify-center gap-2.5 rounded-2xl
-                 bg-gradient-to-r from-[#0d5f6b] to-[#0a4a54] hover:from-[#0b5060] hover:to-[#0a4a54] px-5 py-3.5 text-sm font-bold text-white
-                 shadow-lg shadow-[#0d5f6b]/25 transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60"
-        >
-          <span v-if="loading" class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
-          {{ loading ? 'Saving & finding wins…' : 'Save & analyze' }}
-        </button>
       </div>
     </div>
 
-    <!-- Entry history -->
-    <div v-if="sortedEntries.length" class="space-y-5">
-      <h2 class="text-base font-bold text-slate-800 px-1 flex items-center gap-2">
-        <span class="h-1.5 w-1.5 rounded-full bg-[#0d5f6b]"></span>
-        Journal history
-      </h2>
+    <div class="mx-auto max-w-4xl space-y-6 px-4 py-8">
 
-      <div
-        v-for="entry in sortedEntries"
-        :key="entry.id"
-        class="group relative overflow-hidden rounded-3xl border border-slate-200/60 bg-white shadow-sm hover:shadow-lg hover:shadow-slate-200/40 transition-all duration-300"
-      >
-        <!-- Gradient hover effect -->
-        <div class="absolute inset-0 bg-gradient-to-br from-teal-50/0 via-white to-emerald-50/0 group-hover:from-teal-50/20 group-hover:to-emerald-50/10 transition-all duration-300"></div>
-        
-        <!-- Entry header -->
-        <div class="relative flex items-start justify-between gap-3 border-b border-slate-100/60 px-6 py-4">
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="text-sm font-bold text-slate-900">{{ formatDate(entry.date) }}</span>
-            <span
-              class="inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide"
-              :class="typePillClass[entry.type] || 'border-slate-200 bg-slate-50 text-slate-600'"
-            >
-              {{ entry.type === 'weekly' ? 'Weekly recap' : 'Daily' }}
-            </span>
+      <!-- ── New Entry Form Card ─────────────────────────────────────────────────── -->
+      <div class="card animate-fade-up overflow-hidden">
+        <!-- Card header -->
+        <div class="flex items-center gap-3 border-b border-slate-100 px-6 py-5">
+          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-100">
+            <Sparkles class="h-4.5 w-4.5 text-violet-600" style="width:18px;height:18px" />
           </div>
-          <button
-            @click="deleteEntry(entry.id)"
-            class="shrink-0 rounded-xl p-2 text-slate-300 hover:bg-rose-50 hover:text-rose-500 transition"
-            title="Delete entry"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
-            </svg>
-          </button>
+          <div>
+            <h2 class="text-base font-bold text-slate-800">New entry</h2>
+            <p class="text-xs text-slate-400">Jot down what happened and AI will extract the wins.</p>
+          </div>
         </div>
 
-        <div class="relative px-6 py-5 space-y-5">
-          <!-- Entry text preview -->
-          <p class="text-sm text-slate-600 line-clamp-3 leading-relaxed">{{ entry.text }}</p>
-
-          <!-- Analysis loading indicator -->
-          <div v-if="!entry.analysis && !entry.analysisFailed" class="flex items-center gap-3 text-sm text-slate-500 bg-slate-50/50 rounded-xl p-3">
-            <span class="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-[#0d5f6b]"></span>
-            Analyzing for wins…
+        <div class="space-y-5 px-6 py-6">
+          <!-- Date + type row -->
+          <div class="flex flex-wrap items-end gap-4">
+            <div>
+              <label class="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-400">Date</label>
+              <input
+                v-model="entryDate"
+                type="date"
+                class="input"
+                style="width:auto;padding:10px 14px"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-400">Entry type</label>
+              <div class="flex overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-0.5">
+                <button
+                  @click="entryType = 'daily'"
+                  class="rounded-lg px-5 py-2 text-sm font-semibold transition-all duration-200"
+                  :class="entryType === 'daily'
+                    ? 'bg-gradient-to-r from-violet-600 to-violet-700 text-white shadow-md'
+                    : 'text-slate-500 hover:text-slate-700'"
+                >Daily</button>
+                <button
+                  @click="entryType = 'weekly'"
+                  class="rounded-lg px-5 py-2 text-sm font-semibold transition-all duration-200"
+                  :class="entryType === 'weekly'
+                    ? 'bg-gradient-to-r from-violet-600 to-violet-700 text-white shadow-md'
+                    : 'text-slate-500 hover:text-slate-700'"
+                >Weekly recap</button>
+              </div>
+            </div>
           </div>
 
-          <!-- Analysis failed -->
-          <div v-else-if="entry.analysisFailed" class="text-sm text-rose-600 bg-rose-50/50 rounded-xl p-3">
-            Analysis failed. The backend may be unavailable.
+          <!-- Textarea + mic -->
+          <div>
+            <div class="mb-2 flex items-center justify-between">
+              <label class="text-sm font-semibold text-slate-700">
+                {{ entryType === 'weekly' ? 'How did the week go?' : 'What happened today?' }}
+              </label>
+              <MicButton :listening="isListening" :supported="speechSupported" @click="toggleMic" />
+            </div>
+            <textarea
+              v-model="entryText"
+              rows="6"
+              class="input resize-none"
+              :class="isListening ? '!border-violet-500 !ring-4 !ring-violet-500/10' : ''"
+              :placeholder="entryType === 'weekly'
+                ? 'What went well this week? Any wins worth celebrating? Who stood out?'
+                : 'What happened today? Any small wins, breakthroughs, or moments worth noting?'"
+            />
+            <p v-if="isListening" class="mt-2 flex items-center gap-2 text-sm font-semibold text-violet-700">
+              <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-violet-600"></span>
+              Listening — speak now, click mic to stop
+            </p>
           </div>
 
-          <!-- Analysis results -->
-          <div v-else-if="entry.analysis" class="space-y-4">
-            <div class="relative pl-4 border-l-2 border-teal-200/60">
-              <p class="text-sm text-slate-600">
-                <span class="font-bold text-slate-800">Summary:</span> {{ entry.analysis.summary }}
-              </p>
+          <!-- Error -->
+          <div v-if="errorMsg" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <span class="font-bold">Error:</span> {{ errorMsg }}
+          </div>
+
+          <!-- Submit button -->
+          <button
+            @click="saveAndAnalyze"
+            :disabled="loading"
+            class="btn btn-primary w-full justify-center rounded-xl py-3 text-sm disabled:opacity-60"
+            style="background:linear-gradient(135deg,#7c3aed 0%,#6d28d9 100%);box-shadow:0 4px 16px rgba(124,58,237,0.3)"
+          >
+            <span v-if="loading" class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
+            <Send v-else class="h-4 w-4" />
+            {{ loading ? 'Saving & analyzing…' : 'Save & analyze' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Entry History ──────────────────────────────────────────────────────── -->
+      <div v-if="sortedEntries.length" class="space-y-4">
+        <h2 class="flex items-center gap-2 px-1 text-sm font-bold uppercase tracking-wider text-slate-500">
+          <BookOpen class="h-4 w-4" />
+          Journal history
+        </h2>
+
+        <div
+          v-for="entry in sortedEntries"
+          :key="entry.id"
+          class="card card-hover animate-fade-up overflow-hidden"
+        >
+          <!-- Entry header -->
+          <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-sm font-bold text-slate-800">{{ formatDate(entry.date) }}</span>
+              <span
+                class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide"
+                :class="typePillClass[entry.type] || 'border-slate-200 bg-slate-50 text-slate-600'"
+              >{{ entry.type === 'weekly' ? 'Weekly' : 'Daily' }}</span>
+            </div>
+            <button
+              @click="deleteEntry(entry.id)"
+              class="shrink-0 rounded-lg p-2 text-slate-300 transition hover:bg-rose-50 hover:text-rose-500"
+              title="Delete entry"
+            >
+              <Trash2 class="h-4 w-4" />
+            </button>
+          </div>
+
+          <div class="space-y-5 px-6 py-5">
+            <!-- Entry text -->
+            <p class="line-clamp-3 text-sm leading-relaxed text-slate-600">{{ entry.text }}</p>
+
+            <!-- Analyzing -->
+            <div v-if="!entry.analysis && !entry.analysisFailed" class="flex items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
+              <span class="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-violet-600 shrink-0"></span>
+              Analyzing for wins…
             </div>
 
-            <div v-if="entry.analysis.wins?.length">
-              <p class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
-                <span class="h-2 w-2 rounded-full bg-gradient-to-br from-[#0d5f6b] to-teal-400"></span>
-                Detected wins
-              </p>
-              <div class="space-y-3">
-                <div
-                  v-for="win in entry.analysis.wins"
-                  :key="win.id"
-                  class="group/win rounded-2xl border border-slate-200/60 overflow-hidden bg-slate-50/30"
-                >
-                  <button
-                    @click="toggleWin(entry.id, win.id)"
-                    class="w-full flex items-center justify-between gap-3 px-5 py-4 text-left hover:bg-white/50 transition duration-200"
-                  >
-                    <span class="text-sm font-bold text-slate-900">{{ win.title }}</span>
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      class="h-5 w-5 shrink-0 text-slate-400 transition-transform duration-300"
-                      :class="expandedWins[entry.id] === win.id ? 'rotate-180' : ''"
-                      viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    >
-                      <polyline points="6 9 12 15 18 9"/>
-                    </svg>
-                  </button>
+            <!-- Failed -->
+            <div v-else-if="entry.analysisFailed" class="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-600">
+              Analysis failed. The backend may be unavailable.
+            </div>
 
+            <!-- Results -->
+            <div v-else-if="entry.analysis" class="space-y-4">
+              <!-- Summary -->
+              <div class="rounded-xl bg-violet-50/60 px-4 py-3 text-sm text-slate-700 border-l-4 border-violet-300">
+                <span class="font-bold text-violet-800">Summary:</span> {{ entry.analysis.summary }}
+              </div>
+
+              <!-- Wins -->
+              <div v-if="entry.analysis.wins?.length">
+                <p class="mb-3 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-400">
+                  <Star class="h-3.5 w-3.5 text-violet-500" />
+                  Detected wins
+                </p>
+                <div class="space-y-2">
                   <div
-                    v-if="expandedWins[entry.id] === win.id"
-                    class="border-t border-slate-100/60 px-5 py-4 space-y-3 bg-white/50"
+                    v-for="win in entry.analysis.wins"
+                    :key="win.id"
+                    class="overflow-hidden rounded-xl border border-slate-200/80 bg-slate-50/40"
                   >
-                    <p class="text-sm text-slate-700"><span class="font-bold text-slate-900">Story:</span> {{ win.story }}</p>
-                    <p class="text-sm text-slate-700"><span class="font-bold text-slate-900">Evidence:</span> {{ win.evidence }}</p>
-                    <div>
-                      <p class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Celebration ideas</p>
-                      <ul class="list-disc pl-5 space-y-2 text-sm text-slate-700">
-                        <li v-for="(idea, i) in win.celebrationIdeas" :key="i" class="leading-relaxed">{{ idea }}</li>
-                      </ul>
+                    <button
+                      @click="toggleWin(entry.id, win.id)"
+                      class="flex w-full items-center justify-between gap-3 px-5 py-3.5 text-left transition hover:bg-white/70"
+                    >
+                      <div class="flex items-center gap-2.5">
+                        <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-100">
+                          <Star class="h-3 w-3 text-violet-600" />
+                        </span>
+                        <span class="text-sm font-semibold text-slate-800">{{ win.title }}</span>
+                      </div>
+                      <ChevronDown
+                        class="h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200"
+                        :class="expandedWins[entry.id] === win.id ? 'rotate-180' : ''"
+                      />
+                    </button>
+
+                    <div
+                      v-if="expandedWins[entry.id] === win.id"
+                      class="space-y-3 border-t border-slate-100 bg-white/60 px-5 py-4"
+                    >
+                      <p class="text-sm text-slate-700"><span class="font-semibold text-slate-900">Story: </span>{{ win.story }}</p>
+                      <p class="text-sm text-slate-700"><span class="font-semibold text-slate-900">Evidence: </span>{{ win.evidence }}</p>
+                      <div>
+                        <p class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">Celebration ideas</p>
+                        <ul class="space-y-1.5">
+                          <li
+                            v-for="(idea, i) in win.celebrationIdeas"
+                            :key="i"
+                            class="flex items-start gap-2 text-sm text-slate-700"
+                          >
+                            <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400"></span>
+                            {{ idea }}
+                          </li>
+                        </ul>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <div v-else class="text-sm text-slate-400 italic bg-slate-50/50 rounded-xl p-3">No wins detected in this entry.</div>
+              <div v-else class="rounded-xl bg-slate-50 px-4 py-3 text-sm italic text-slate-400">
+                No wins detected in this entry.
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- Empty state -->
-    <div v-else class="relative overflow-hidden rounded-3xl border border-dashed border-slate-200/60 bg-gradient-to-br from-slate-50 to-white px-5 py-16 text-center">
-      <div class="absolute inset-0 bg-[radial-gradient(circle_at_50%_100%,rgba(13,95,107,0.05),transparent_50%)]"></div>
-      <div class="relative">
-        <p class="text-base font-bold text-slate-600">No journal entries yet.</p>
-        <p class="mt-2 text-sm text-slate-400">Write your first entry above — daily notes or a weekly recap.</p>
+      <!-- ── Empty state ────────────────────────────────────────────────────────── -->
+      <div
+        v-else
+        class="card flex flex-col items-center gap-4 py-16 text-center animate-fade-up"
+      >
+        <div class="flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-50">
+          <BookOpen class="h-8 w-8 text-violet-300" />
+        </div>
+        <div>
+          <p class="font-bold text-slate-700">No journal entries yet.</p>
+          <p class="mt-1 text-sm text-slate-400">Write your first entry above — daily notes or a weekly recap.</p>
+        </div>
       </div>
-    </div>
 
+    </div>
   </div>
 </template>
