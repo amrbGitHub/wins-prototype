@@ -4,7 +4,10 @@ import { useApi } from '../composables/useApi.js'
 import {
   Target, CheckCircle2, Archive, Trash2, ChevronDown,
   Sparkles, RefreshCw, Calendar, TrendingUp, Play,
+  Plus, X, PenLine, CalendarDays,
 } from 'lucide-vue-next'
+
+const emit = defineEmits(['navigate'])
 
 const { apiFetch } = useApi()
 
@@ -13,6 +16,40 @@ const loading         = ref(true)
 const generatingSteps = ref(new Set())
 const expanded        = ref(new Set())
 const month           = ref(new Date().toISOString().slice(0, 7))
+
+// ── Manual goal creation ───────────────────────────────────────────────────
+const showAddForm  = ref(false)
+const addingSaving = ref(false)
+const addError     = ref('')
+const newGoal      = ref({ title: '', description: '' })
+
+function openAddForm() {
+  newGoal.value  = { title: '', description: '' }
+  addError.value = ''
+  showAddForm.value = true
+}
+
+function cancelAdd() {
+  showAddForm.value = false
+}
+
+async function saveNewGoal() {
+  if (!newGoal.value.title.trim()) return
+  addingSaving.value = true
+  addError.value     = ''
+  try {
+    const created = await apiFetch('/api/goals', {
+      method: 'POST',
+      body: JSON.stringify({ title: newGoal.value.title.trim(), description: newGoal.value.description.trim(), month: month.value }),
+    })
+    goals.value.push(created)
+    showAddForm.value = false
+  } catch (e) {
+    addError.value = e.message
+  } finally {
+    addingSaving.value = false
+  }
+}
 
 const monthLabel = computed(() => {
   const [y, m] = month.value.split('-').map(Number)
@@ -122,15 +159,28 @@ function progressColor(pct) {
       <div class="absolute bottom-0 left-20 h-28 w-28 rounded-full opacity-10" style="background:rgba(255,255,255,0.6)"></div>
 
       <div class="relative px-8 py-9">
-        <div class="flex items-start gap-5">
-          <div class="h-14 w-14 rounded-2xl shrink-0 flex items-center justify-center shadow-lg animate-float"
-               style="background:rgba(255,255,255,0.2);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.3)">
-            <Target class="h-7 w-7 text-white" />
+        <div class="flex items-start justify-between gap-4">
+          <div class="flex items-start gap-5">
+            <div class="h-14 w-14 rounded-2xl shrink-0 flex items-center justify-center shadow-lg animate-float"
+                 style="background:rgba(255,255,255,0.2);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.3)">
+              <Target class="h-7 w-7 text-white" />
+            </div>
+            <div>
+              <h1 class="text-2xl font-bold text-white">My Goals</h1>
+              <p class="text-emerald-100 text-sm mt-1">{{ monthLabel }} · Track your progress</p>
+            </div>
           </div>
-          <div>
-            <h1 class="text-2xl font-bold text-white">My Goals</h1>
-            <p class="text-emerald-100 text-sm mt-1">{{ monthLabel }} · Stay focused and track your progress</p>
-          </div>
+          <!-- Add goal button (always visible) -->
+          <button
+            @click="openAddForm"
+            class="shrink-0 flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-bold transition-all"
+            style="background:rgba(255,255,255,0.18);color:white;border:1px solid rgba(255,255,255,0.35);backdrop-filter:blur(8px)"
+            onmouseover="this.style.background='rgba(255,255,255,0.28)'"
+            onmouseout="this.style.background='rgba(255,255,255,0.18)'"
+          >
+            <Plus class="h-4 w-4" />
+            Add goal
+          </button>
         </div>
 
         <!-- Progress overview -->
@@ -163,21 +213,113 @@ function progressColor(pct) {
     </div>
 
     <!-- ── Empty state ───────────────────────────────────────────────── -->
-    <div v-else-if="!goals.length" class="card flex flex-col items-center gap-5 px-8 py-16 text-center animate-fade-up">
-      <div class="h-20 w-20 rounded-3xl flex items-center justify-center animate-float"
-           style="background:linear-gradient(135deg,#d1fae5,#a7f3d0)">
-        <Target class="h-10 w-10 text-emerald-500" />
+    <div v-else-if="!goals.length && !showAddForm" class="space-y-4 animate-fade-up">
+      <div class="card px-8 py-10 text-center">
+        <div class="h-16 w-16 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-float"
+             style="background:linear-gradient(135deg,#d1fae5,#a7f3d0)">
+          <Target class="h-8 w-8 text-emerald-500" />
+        </div>
+        <p class="text-lg font-bold text-slate-700">No goals yet for {{ monthLabel }}</p>
+        <p class="text-sm text-slate-400 mt-1 mb-7">Choose how you'd like to get started:</p>
+
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <!-- Path 1: Add manually -->
+          <button
+            @click="openAddForm"
+            class="group flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed p-6 text-center transition-all duration-200 hover:border-emerald-400 hover:bg-emerald-50/60"
+            style="border-color:#d1d5db"
+          >
+            <div class="h-11 w-11 rounded-xl flex items-center justify-center transition-all group-hover:scale-110"
+                 style="background:linear-gradient(135deg,#d1fae5,#a7f3d0)">
+              <PenLine class="h-5 w-5 text-emerald-600" />
+            </div>
+            <div>
+              <p class="text-sm font-bold text-slate-700 group-hover:text-emerald-700 transition-colors">Add a goal yourself</p>
+              <p class="text-xs text-slate-400 mt-0.5 leading-relaxed">Quick and direct — type your goal and start tracking right away.</p>
+            </div>
+          </button>
+
+          <!-- Path 2: Go to Planner -->
+          <button
+            @click="emit('navigate', 'planner')"
+            class="group flex flex-col items-center gap-3 rounded-2xl border-2 p-6 text-center transition-all duration-200"
+            style="border-color:#0d5f6b;background:linear-gradient(135deg,#f0fdfa,#e0f5f7)"
+          >
+            <div class="h-11 w-11 rounded-xl flex items-center justify-center transition-all group-hover:scale-110"
+                 style="background:linear-gradient(135deg,#0d5f6b,#0e8095)">
+              <CalendarDays class="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <p class="text-sm font-bold transition-colors" style="color:#0d5f6b">Build with AI in Planner</p>
+              <p class="text-xs text-slate-500 mt-0.5 leading-relaxed">Chat with your AI coach to create a focused plan for the month.</p>
+            </div>
+          </button>
+        </div>
       </div>
-      <div>
-        <p class="text-lg font-bold text-slate-700">No goals for {{ monthLabel }}</p>
-        <p class="text-sm text-slate-400 mt-2 max-w-xs leading-relaxed">
-          Head to the <strong>Planner</strong> tab to set your goals for this month with your AI coach.
-        </p>
+    </div>
+
+    <!-- ── Add goal inline form ─────────────────────────────────────────── -->
+    <div v-if="showAddForm" class="card p-6 animate-scale-in">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2.5">
+          <div class="h-8 w-8 rounded-xl flex items-center justify-center"
+               style="background:linear-gradient(135deg,#059669,#10b981)">
+            <Plus class="h-4 w-4 text-white" />
+          </div>
+          <h3 class="text-sm font-bold text-slate-800">New goal</h3>
+        </div>
+        <button @click="cancelAdd" class="h-8 w-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition">
+          <X class="h-4 w-4" />
+        </button>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+            Goal title <span class="text-rose-400">*</span>
+          </label>
+          <input
+            v-model="newGoal.title"
+            type="text"
+            placeholder="e.g. Complete the leadership programme"
+            class="input"
+            @keydown.enter="saveNewGoal"
+            autofocus
+          />
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Description <span class="text-slate-300 font-normal normal-case">(optional)</span></label>
+          <input
+            v-model="newGoal.description"
+            type="text"
+            placeholder="Add more detail if you like"
+            class="input"
+            @keydown.enter="saveNewGoal"
+          />
+        </div>
+      </div>
+
+      <p v-if="addError" class="mt-2 text-sm text-rose-600 bg-rose-50 rounded-xl px-3 py-2">{{ addError }}</p>
+
+      <div class="flex gap-2.5 mt-5">
+        <button @click="cancelAdd" class="btn btn-ghost">Cancel</button>
+        <button
+          @click="saveNewGoal"
+          :disabled="!newGoal.title.trim() || addingSaving"
+          class="btn btn-primary flex-1 justify-center"
+          style="background:linear-gradient(135deg,#059669,#10b981);box-shadow:0 2px 8px rgba(5,150,105,0.3)"
+        >
+          <span v-if="addingSaving">Saving…</span>
+          <template v-else>
+            <Plus class="h-4 w-4" />
+            Create goal
+          </template>
+        </button>
       </div>
     </div>
 
     <!-- ── Goals list ─────────────────────────────────────────────────── -->
-    <div v-else class="space-y-8">
+    <div v-if="goals.length" class="space-y-8">
 
       <!-- Active goals -->
       <section v-if="activeGoals.length" class="space-y-4 animate-fade-up stagger">

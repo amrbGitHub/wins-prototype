@@ -18,7 +18,6 @@ const error   = ref('')
 const form = ref({
   firstName:     '',
   lastName:      '',
-  username:      '',
   learningStyle: '',
   aiPersonality: '',
 })
@@ -160,15 +159,6 @@ async function save() {
                 />
               </div>
             </div>
-            <div>
-              <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Username</label>
-              <input
-                v-model="form.username"
-                type="text"
-                placeholder="alex_j"
-                class="input"
-              />
-            </div>
           </div>
 
           <button
@@ -183,6 +173,10 @@ async function save() {
 
         <!-- ─ STEP 2: Learning style ─────────────────────────────────────── -->
         <div v-else-if="step === 2" class="animate-fade-up">
+          <p class="text-xs text-slate-400 mb-3 flex items-center gap-1.5">
+            <span class="inline-flex h-4 w-4 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-500">1</span>
+            Choose the one that resonates most with you — just pick one.
+          </p>
           <div class="space-y-2.5">
             <button
               v-for="s in learningStyles"

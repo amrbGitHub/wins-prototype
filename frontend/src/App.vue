@@ -73,6 +73,7 @@ async function loadProfile() {
 function onOnboardingDone(newProfile) {
   profile.value        = newProfile
   showOnboarding.value = false
+  currentView.value    = 'planner'   // guide new users straight to goal-setting
 }
 
 function onProfileUpdated(newProfile) {
@@ -461,6 +462,7 @@ onUnmounted(() => clearInterval(_statusTimer))
       <MyGoals
         v-else-if="currentView === 'goals'"
         :key="'goals-' + myGoalsKey"
+        @navigate="navigate"
       />
       <Reflections     v-else-if="currentView === 'reflections'" />
       <UserProfile

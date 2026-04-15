@@ -23,6 +23,36 @@ router.get('/', verifyToken, async (req, res) => {
   }
 })
 
+// POST /api/goals — create a goal manually
+router.post('/', verifyToken, async (req, res) => {
+  try {
+    const { title, description, successCriteria, targetDate, month: bodyMonth } = req.body || {}
+    if (!title?.trim()) return res.status(400).json({ error: 'title is required' })
+
+    const month = bodyMonth || new Date().toISOString().slice(0, 7)
+
+    const { data, error } = await supabase
+      .from('goals')
+      .insert({
+        user_id:          req.userId,
+        month,
+        title:            title.trim(),
+        description:      description?.trim() || null,
+        success_criteria: successCriteria?.trim() || null,
+        target_date:      targetDate || null,
+        status:           'active',
+        progress:         0,
+        steps:            [],
+      })
+      .select()
+      .single()
+    if (error) throw error
+    res.status(201).json(dbGoalToShape(data))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // POST /api/goals/transfer — copy goals from one month to another
 // Static route must come before POST /:id/steps
 router.post('/transfer', verifyToken, async (req, res) => {
