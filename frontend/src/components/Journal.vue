@@ -2,10 +2,11 @@
 import { ref, computed, onMounted } from 'vue'
 import { useSpeech } from '../composables/useSpeech.js'
 import { useApi } from '../composables/useApi.js'
+import { todayLocal } from '../lib/dates.js'
 import MicButton from './MicButton.vue'
 import { BookOpen, Send, Trash2, Star, ChevronDown, Sparkles } from 'lucide-vue-next'
 
-const { apiFetch, apiFetchPublic } = useApi()
+const { apiFetch } = useApi()
 
 // --- Speech ---
 const { isSupported: speechSupported, isListening, toggleListening } = useSpeech()
@@ -22,7 +23,7 @@ const entries = ref([])
 const expandedWins = ref({}) // entryId -> winId or null
 
 function today() {
-  return new Date().toISOString().slice(0, 10)
+  return todayLocal()
 }
 
 
@@ -77,7 +78,7 @@ async function saveAndAnalyze() {
 
   try {
     // Phase 2: run AI analysis (existing endpoint)
-    const analysis = await apiFetchPublic('/api/analyze-journal', {
+    const analysis = await apiFetch('/api/analyze-journal', {
       method: 'POST',
       body: JSON.stringify({ text: newEntry.text, type: newEntry.type }),
     })

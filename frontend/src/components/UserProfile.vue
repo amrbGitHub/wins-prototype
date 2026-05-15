@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useAuth } from '../composables/useAuth.js'
 import { useApi }  from '../composables/useApi.js'
-import { User, Trophy, Star, Pencil, X, Save, ChevronRight } from 'lucide-vue-next'
+import { User, Trophy, Star, Pencil, X, Save, ChevronRight, AlertTriangle, Trash2 } from 'lucide-vue-next'
 
 const props = defineProps({
   profile: { type: Object, default: null },
@@ -107,6 +107,35 @@ const displayName = computed(() => {
   const { firstName, lastName } = props.profile
   return [firstName, lastName].filter(Boolean).join(' ') || props.profile.username || user.value?.email
 })
+
+// ── Clean slate (TESTING ONLY) ────────────────────────────────────────────────
+const cleaning      = ref(false)
+const cleanResult   = ref(null)
+const cleanError    = ref('')
+
+async function cleanSlate() {
+  const ok = window.confirm(
+    'CLEAN SLATE — wipe ALL goals, journal entries, reflections, and chat history?\n\n' +
+    'Your profile and login stay intact. This cannot be undone.\n\n' +
+    'Continue?'
+  )
+  if (!ok) return
+
+  cleaning.value    = true
+  cleanError.value  = ''
+  cleanResult.value = null
+  try {
+    const res = await apiFetch('/api/dev/clean-slate', { method: 'POST' })
+    cleanResult.value = res.results
+    // Force-refresh stats + tell the rest of the app to reload
+    await loadStats()
+    emit('updated', props.profile)   // bumps key in App.vue
+  } catch (e) {
+    cleanError.value = e.message
+  } finally {
+    cleaning.value = false
+  }
+}
 </script>
 
 <template>
@@ -298,6 +327,50 @@ const displayName = computed(() => {
             </button>
           </div>
         </form>
+      </div>
+
+      <!-- ── Danger zone (testing only) ──────────────────────────────────────── -->
+      <div class="rounded-3xl border-2 border-dashed border-rose-200 bg-rose-50/30 p-6 mt-6">
+        <div class="flex items-start gap-3 mb-3">
+          <div class="shrink-0 h-9 w-9 rounded-xl bg-rose-100 flex items-center justify-center">
+            <AlertTriangle class="h-5 w-5 text-rose-600" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <h3 class="text-sm font-bold text-rose-700">Danger zone — testing only</h3>
+            <p class="text-xs text-rose-600/80 mt-0.5 leading-relaxed">
+              Wipes ALL goals, journal entries, reflections, and LC chat history for this account.
+              Your profile and login stay intact. This cannot be undone.
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          @click="cleanSlate"
+          :disabled="cleaning"
+          class="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-50"
+        >
+          <span v-if="cleaning" class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
+          <Trash2 v-else class="h-4 w-4" />
+          {{ cleaning ? 'Wiping…' : 'Clean slate' }}
+        </button>
+
+        <!-- Result -->
+        <div v-if="cleanResult" class="mt-3 rounded-xl bg-white border border-rose-200 px-4 py-3 text-xs">
+          <p class="font-bold text-rose-700 mb-1.5">Done. Deleted:</p>
+          <ul class="space-y-0.5 text-slate-600">
+            <li v-for="(r, table) in cleanResult" :key="table">
+              <span class="font-mono text-[11px]">{{ table }}:</span>
+              <span v-if="r.error" class="text-rose-500"> {{ r.error }}</span>
+              <span v-else> {{ r.deleted }} row{{ r.deleted === 1 ? '' : 's' }}</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Error -->
+        <div v-if="cleanError" class="mt-3 rounded-xl bg-rose-100 border border-rose-300 px-4 py-2.5 text-xs text-rose-700">
+          {{ cleanError }}
+        </div>
       </div>
 
     </div>

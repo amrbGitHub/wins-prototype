@@ -92,7 +92,7 @@ function toggle(id) {
         </div>
         <div>
           <p class="font-bold text-slate-700">No reflections yet</p>
-          <p class="mt-1 max-w-xs text-sm text-slate-400">When you complete a weekly review in the Planner, your evaluations will appear here.</p>
+          <p class="mt-1 max-w-xs text-sm text-slate-400">When you complete a monthly review, your evaluations will appear here.</p>
         </div>
       </div>
 

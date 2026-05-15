@@ -1,0 +1,520 @@
+<script setup>
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useApi } from '../composables/useApi.js'
+import { useLcChat } from '../composables/useLcChat.js'
+import LcActionCard from './LcActionCard.vue'
+import {
+  Sparkles, Send, Trash2, Plus, RefreshCw, MessageSquare, Mic,
+  CalendarDays, MessagesSquare, PanelLeft, PanelLeftClose, AlertCircle,
+} from 'lucide-vue-next'
+
+const props = defineProps({ firstName: { type: String, default: '' } })
+const emit  = defineEmits(['goals-updated', 'navigate'])
+
+const { apiFetch } = useApi()
+
+// ── Conversation mode (check-in vs planner) ────────────────────────────────
+const conversationMode = ref('checkin')
+const plannerMode      = computed(() => conversationMode.value === 'planner')
+
+// ── Input mode ─────────────────────────────────────────────────────────────
+const srSupported  = !!(window.SpeechRecognition || window.webkitSpeechRecognition)
+const inputMode    = ref('voice')
+
+// ── Conversation persistence ───────────────────────────────────────────────
+const conversations     = ref([])
+const conversationId    = ref(null)
+const conversationTitle = ref('New chat')
+const sidebarOpen       = ref(true)
+
+// generation token: any in-flight save tagged with an old generation is dropped.
+// This prevents the cross-conversation save corruption flagged in review #2.
+let _saveGen = 0
+
+// Track how many messages we've already persisted in the current conversation.
+// On every turn boundary we POST .../messages with just the new tail, instead
+// of overwriting the entire JSONB blob.
+let _lastPersistedCount = 0
+
+// ── LC chat composable ─────────────────────────────────────────────────────
+const lc = useLcChat({
+  getFirstName:   () => props.firstName,
+  getPlannerMode: () => plannerMode.value,
+  onGoalsUpdated: () => emit('goals-updated'),
+  onNavigate:     (id) => emit('navigate', id),
+  onAfterTurn:    () => persistConversationTail(),
+})
+
+const {
+  messages, error, streaming, chatEl,
+  convoStatus, convoTranscript,
+  lastAiMsg, lastActions, convoStatusLabel,
+  ttsSupported, ttsLoading, ttsLoadProgress,
+  reset, stopAll,
+  runTextGreeting, sendTextMessage,
+  runVoiceTurn, toggleConvoMic,
+  retryFromMessage, clickNavigateAction,
+  rehydrateActions, newId,
+} = lc
+
+const voiceCapable = computed(() => srSupported && ttsSupported.value)
+
+// ── Text input state ───────────────────────────────────────────────────────
+const textInput = ref('')
+
+// ── Lifecycle ──────────────────────────────────────────────────────────────
+onMounted(async () => {
+  inputMode.value = voiceCapable.value ? 'voice' : 'text'
+  await loadConversations()
+  if (conversations.value.length) {
+    await openConversation(conversations.value[0].id)
+  } else {
+    await startNewChat()
+  }
+})
+onUnmounted(stopAll)
+
+function switchInputMode(newMode) {
+  if (inputMode.value === newMode) return
+  stopAll()
+  inputMode.value = newMode
+}
+
+async function switchConversationMode(newMode) {
+  if (conversationMode.value === newMode) return
+  conversationMode.value = newMode
+  await startNewChat()
+}
+
+// ── Conversation persistence ───────────────────────────────────────────────
+async function loadConversations() {
+  try {
+    const list = await apiFetch('/api/lc/conversations')
+    conversations.value = Array.isArray(list) ? list : []
+  } catch (e) {
+    console.error('[LC] load conversations failed:', e)
+    conversations.value = []
+  }
+}
+
+async function startNewChat() {
+  // Bump generation BEFORE doing anything else: any in-flight save against the
+  // previous conversation will see the stale gen and bail out.
+  _saveGen++
+  const myGen = _saveGen
+
+  stopAll()
+  reset()
+  conversationId.value     = null
+  conversationTitle.value  = conversationMode.value === 'planner' ? 'Plan my month' : 'New chat'
+  _lastPersistedCount = 0
+
+  try {
+    const created = await apiFetch('/api/lc/conversations', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: conversationTitle.value,
+        plannerMode: plannerMode.value,
+        messages: [],
+      }),
+    })
+    if (myGen !== _saveGen) return   // another switch happened — bail
+    conversationId.value = created.id
+    await loadConversations()
+  } catch (e) {
+    console.error('[LC] create conversation failed:', e)
+    return
+  }
+
+  if (myGen !== _saveGen) return
+  if (inputMode.value === 'voice') await runVoiceTurn()
+  else                              await runTextGreeting()
+}
+
+async function openConversation(id) {
+  if (conversationId.value === id) return
+  _saveGen++
+  const myGen = _saveGen
+
+  stopAll()
+  try {
+    const full = await apiFetch(`/api/lc/conversations/${id}`)
+    if (myGen !== _saveGen) return
+
+    conversationId.value     = full.id
+    conversationTitle.value  = full.title || 'Chat'
+    conversationMode.value   = full.plannerMode ? 'planner' : 'checkin'
+    // Rehydrate messages — heal any stuck-pending action statuses.
+    messages.value = (full.messages || []).map(m => {
+      const id = m._id || newId('m')
+      if (m.role === 'assistant' && Array.isArray(m.actions)) {
+        return { ...m, _id: id, actions: rehydrateActions(m.actions) }
+      }
+      return { ...m, _id: id }
+    })
+    _lastPersistedCount = messages.value.length
+    lc.scrollBottom()
+  } catch (e) {
+    console.error('[LC] open conversation failed:', e)
+    error.value = 'Could not load that conversation.'
+  }
+}
+
+async function deleteConversation(id, ev) {
+  ev?.stopPropagation()
+  if (!confirm('Delete this chat? This cannot be undone.')) return
+  try {
+    await apiFetch(`/api/lc/conversations/${id}`, { method: 'DELETE' })
+    await loadConversations()
+    if (conversationId.value === id) {
+      if (conversations.value.length) await openConversation(conversations.value[0].id)
+      else                            await startNewChat()
+    }
+  } catch (e) {
+    console.error('[LC] delete conversation failed:', e)
+  }
+}
+
+// Persist only the NEW messages since last save. Called on turn boundaries
+// (onAfterTurn from the composable). Does nothing if no new messages.
+async function persistConversationTail() {
+  if (!conversationId.value) return
+  const all  = messages.value
+  if (all.length <= _lastPersistedCount) return
+  const tail = all.slice(_lastPersistedCount)
+  // Snapshot the conversation+gen we're saving against — drop the result if
+  // the user has switched chats by the time the response comes back.
+  const targetId = conversationId.value
+  const myGen    = _saveGen
+  // Strip reactive proxies / non-persistable internals
+  const sanitised = JSON.parse(JSON.stringify(tail))
+  try {
+    await apiFetch(`/api/lc/conversations/${targetId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ messages: sanitised }),
+    })
+    if (myGen !== _saveGen || conversationId.value !== targetId) return  // user switched chats; the data still landed on the right row but don't update local bookkeeping
+    _lastPersistedCount = all.length
+
+    // Update title from first user message if it's still the default
+    if (conversationTitle.value === 'New chat' || conversationTitle.value === 'Plan my month') {
+      const firstUser = all.find(m => m.role === 'user')
+      if (firstUser) {
+        const t = firstUser.content.trim().slice(0, 48) + (firstUser.content.length > 48 ? '…' : '')
+        await apiFetch(`/api/lc/conversations/${targetId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ title: t }),
+        })
+        conversationTitle.value = t
+      }
+    }
+    // Refresh sidebar list (don't await — non-critical)
+    loadConversations()
+  } catch (e) {
+    console.error('[LC] persist failed:', e)
+  }
+}
+
+// ── Text input ─────────────────────────────────────────────────────────────
+async function sendText() {
+  const t = textInput.value
+  textInput.value = ''
+  await sendTextMessage(t)
+}
+
+function onTextEnter(e) {
+  if (e.isComposing || e.keyCode === 229) return   // IME composition
+  if (e.shiftKey) return
+  e.preventDefault()
+  sendText()
+}
+
+function relTime(ts) {
+  const d = Date.now() - ts
+  if (d < 60_000)      return 'just now'
+  if (d < 3_600_000)   return `${Math.floor(d / 60_000)}m ago`
+  if (d < 86_400_000)  return `${Math.floor(d / 3_600_000)}h ago`
+  if (d < 604_800_000) return `${Math.floor(d / 86_400_000)}d ago`
+  return new Date(ts).toLocaleDateString()
+}
+</script>
+
+<template>
+  <div class="min-h-screen flex" style="background:var(--page-bg)">
+
+    <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
+    <aside
+      class="shrink-0 border-r flex flex-col transition-all duration-200 overflow-hidden"
+      :class="sidebarOpen ? 'w-72' : 'w-0'"
+      style="background:#fff;border-color:rgba(0,0,0,0.06)"
+      aria-label="Past conversations"
+    >
+      <div class="px-4 py-4 border-b flex items-center justify-between" style="border-color:rgba(0,0,0,0.06)">
+        <div class="flex items-center gap-2">
+          <MessagesSquare class="h-4 w-4 text-slate-500" aria-hidden="true" />
+          <h2 class="text-sm font-bold text-slate-700">Chats</h2>
+        </div>
+        <button @click="startNewChat"
+          :disabled="streaming || convoStatus === 'processing'"
+          class="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-white shadow-sm disabled:opacity-40"
+          style="background:linear-gradient(135deg,#0d5f6b,#0e8095)" aria-label="Start a new chat">
+          <Plus class="h-3 w-3" aria-hidden="true" /> New
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto px-2 py-2">
+        <p v-if="!conversations.length" class="px-3 py-6 text-center text-xs text-slate-400">
+          No chats yet — start talking to LC and it will save here.
+        </p>
+        <button v-for="c in conversations" :key="c.id"
+          @click="openConversation(c.id)"
+          class="group w-full text-left rounded-lg px-3 py-2 mb-1 transition flex items-start gap-2"
+          :class="conversationId === c.id ? 'bg-teal-50 ring-1 ring-teal-200' : 'hover:bg-slate-50'"
+          :aria-current="conversationId === c.id ? 'true' : 'false'">
+          <div class="shrink-0 mt-0.5" aria-hidden="true">
+            <CalendarDays v-if="c.plannerMode" class="h-3.5 w-3.5 text-violet-500" />
+            <Sparkles      v-else              class="h-3.5 w-3.5 text-teal-500" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-[12px] font-semibold text-slate-700 truncate">{{ c.title || 'New chat' }}</p>
+            <p class="text-[10px] text-slate-400 mt-0.5">
+              {{ c.plannerMode ? 'Planner · ' : '' }}{{ relTime(c.updatedAt) }}
+            </p>
+          </div>
+          <button @click="deleteConversation(c.id, $event)"
+            class="shrink-0 opacity-0 group-hover:opacity-100 transition text-slate-400 hover:text-rose-500"
+            aria-label="Delete chat">
+            <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ── Main column ─────────────────────────────────────────────────────── -->
+    <div class="flex-1 flex flex-col min-w-0">
+
+      <div class="relative overflow-hidden shrink-0"
+           style="background:linear-gradient(135deg,#0b1a1c 0%,#0d5f6b 55%,#0e8095 100%)">
+        <div class="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/5 blur-3xl"></div>
+        <div class="pointer-events-none absolute -bottom-8 left-1/4 h-40 w-40 rounded-full bg-cyan-300/10 blur-2xl"></div>
+
+        <div class="relative mx-auto max-w-3xl px-6 py-6">
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+
+            <div class="flex items-center gap-3">
+              <button @click="sidebarOpen = !sidebarOpen"
+                class="flex h-9 w-9 items-center justify-center rounded-xl ring-1 ring-white/20 text-white/70 hover:text-white hover:bg-white/15 transition"
+                style="background:rgba(255,255,255,0.08)"
+                :aria-label="sidebarOpen ? 'Hide chat list' : 'Show chat list'"
+                :aria-expanded="sidebarOpen">
+                <component :is="sidebarOpen ? PanelLeftClose : PanelLeft" class="h-4 w-4" aria-hidden="true" />
+              </button>
+
+              <div class="relative shrink-0" aria-hidden="true">
+                <div class="h-12 w-12 rounded-2xl flex items-center justify-center shadow-lg ring-1 ring-white/20"
+                     style="background:rgba(255,255,255,0.12);backdrop-filter:blur(8px)">
+                  <Sparkles class="h-6 w-6 text-teal-300" />
+                </div>
+                <span class="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 bg-emerald-400" style="border-color:#0b1a1c"></span>
+              </div>
+              <div class="min-w-0">
+                <h1 class="text-xl font-extrabold tracking-tight text-white leading-tight">LC</h1>
+                <p class="text-[11px] text-teal-200/70 mt-0.5 truncate max-w-[200px]">{{ conversationTitle }}</p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2 flex-wrap">
+              <div class="flex overflow-hidden rounded-xl ring-1 ring-white/15 bg-white/10 p-0.5" role="tablist" aria-label="Conversation mode">
+                <button @click="switchConversationMode('checkin')" role="tab" :aria-selected="conversationMode === 'checkin'"
+                  class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-all"
+                  :class="conversationMode === 'checkin' ? 'bg-white text-slate-700 shadow-sm' : 'text-white/70 hover:text-white'">
+                  <Sparkles class="h-3 w-3" aria-hidden="true" />Check-in
+                </button>
+                <button @click="switchConversationMode('planner')" role="tab" :aria-selected="conversationMode === 'planner'"
+                  class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-all"
+                  :class="conversationMode === 'planner' ? 'bg-white text-slate-700 shadow-sm' : 'text-white/70 hover:text-white'">
+                  <CalendarDays class="h-3 w-3" aria-hidden="true" />Plan my month
+                </button>
+              </div>
+
+              <div class="flex overflow-hidden rounded-lg ring-1 ring-white/15 bg-white/10 p-0.5" role="tablist" aria-label="Input mode">
+                <button @click="switchInputMode('voice')" :disabled="!voiceCapable" role="tab" :aria-selected="inputMode === 'voice'"
+                  class="flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all disabled:opacity-40"
+                  :class="inputMode === 'voice' ? 'bg-white text-slate-700 shadow-sm' : 'text-white/70 hover:text-white'"
+                ><Mic class="h-3 w-3" aria-hidden="true" />Voice</button>
+                <button @click="switchInputMode('text')" role="tab" :aria-selected="inputMode === 'text'"
+                  class="flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all"
+                  :class="inputMode === 'text' ? 'bg-white text-slate-700 shadow-sm' : 'text-white/70 hover:text-white'"
+                ><MessageSquare class="h-3 w-3" aria-hidden="true" />Text</button>
+              </div>
+
+              <button @click="startNewChat" :disabled="convoStatus === 'processing' || streaming"
+                aria-label="New chat"
+                class="flex h-9 w-9 items-center justify-center rounded-xl ring-1 ring-white/20 text-white/70 hover:text-white hover:bg-white/15 transition disabled:opacity-40"
+                style="background:rgba(255,255,255,0.08)">
+                <RefreshCw class="h-4 w-4" :class="(convoStatus === 'processing' || streaming) ? 'animate-spin' : ''" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+
+          <p class="mt-2.5 text-[11px] text-teal-200/55">
+            <span v-if="conversationMode === 'checkin'">Tell me about your wins, progress, or how things are going — I'll log, update, and celebrate them for you.</span>
+            <span v-else>Let's set your goals for the month. Tell me what you want to focus on and I'll create them.</span>
+          </p>
+        </div>
+      </div>
+
+      <!-- VOICE MODE -->
+      <template v-if="inputMode === 'voice'">
+        <div class="flex-1 flex flex-col items-center justify-center px-6 py-10 gap-7 mx-auto w-full max-w-lg">
+
+          <Transition enter-active-class="transition duration-300 ease-out"
+            enter-from-class="opacity-0 translate-y-3" enter-to-class="opacity-100 translate-y-0">
+            <div v-if="lastAiMsg" class="w-full rounded-2xl border border-slate-100 bg-white px-6 py-4 text-center text-sm leading-relaxed text-slate-700 shadow-sm">
+              {{ lastAiMsg }}
+            </div>
+          </Transition>
+
+          <div v-if="ttsLoading" class="flex flex-col items-center gap-3">
+            <div class="relative h-32 w-32" role="progressbar" :aria-valuenow="ttsLoadProgress" aria-valuemin="0" aria-valuemax="100" aria-label="Loading voice model">
+              <svg class="h-32 w-32 -rotate-90" viewBox="0 0 100 100" aria-hidden="true">
+                <circle cx="50" cy="50" r="40" fill="none" stroke="#e2e8f0" stroke-width="6" />
+                <circle cx="50" cy="50" r="40" fill="none" stroke="#0d5f6b" stroke-width="6" stroke-linecap="round"
+                  :stroke-dasharray="`${2 * Math.PI * 40}`"
+                  :stroke-dashoffset="`${2 * Math.PI * 40 * (1 - ttsLoadProgress / 100)}`"
+                  class="transition-all duration-300" />
+              </svg>
+              <span class="absolute inset-0 flex items-center justify-center text-sm font-bold text-[#0d5f6b]">{{ ttsLoadProgress }}%</span>
+            </div>
+            <p class="text-sm font-semibold text-slate-600">Loading voice…</p>
+          </div>
+
+          <button v-else @click="toggleConvoMic" :disabled="convoStatus === 'processing'"
+            :aria-label="convoStatus === 'listening' ? 'Stop listening' : (convoStatus === 'speaking' ? 'Interrupt and speak' : 'Tap to speak')"
+            class="relative h-40 w-40 rounded-full transition-transform duration-200 focus:outline-none hover:scale-105 active:scale-95 disabled:cursor-default disabled:hover:scale-100">
+            <span class="absolute inset-0 rounded-full"
+              :class="{
+                'animate-ping bg-teal-500 opacity-20':    convoStatus === 'listening',
+                'animate-ping bg-emerald-400 opacity-20': convoStatus === 'speaking',
+              }" />
+            <span class="absolute inset-2 rounded-full shadow-2xl transition-all duration-500"
+              :style="convoStatus === 'listening'
+                ? 'background:linear-gradient(135deg,#0d5f6b,#0e8095);box-shadow:0 0 56px rgba(13,95,107,0.55)'
+                : convoStatus === 'speaking'
+                ? 'background:linear-gradient(135deg,#059669,#0d9488);box-shadow:0 0 56px rgba(5,150,105,0.50)'
+                : convoStatus === 'processing'
+                ? 'background:#e2e8f0'
+                : 'background:linear-gradient(135deg,#334155,#475569);box-shadow:0 0 28px rgba(0,0,0,0.12)'" />
+            <span class="absolute inset-0 flex items-center justify-center" aria-hidden="true">
+              <svg v-if="convoStatus === 'idle' || convoStatus === 'listening'"
+                class="h-14 w-14 transition-colors duration-300"
+                :class="convoStatus === 'listening' ? 'text-white' : 'text-slate-400'"
+                viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2H3v2a9 9 0 0 0 8 8.94V23h2v-2.06A9 9 0 0 0 21 12v-2h-2z"/>
+              </svg>
+              <span v-else-if="convoStatus === 'speaking'" class="flex h-11 items-end gap-1.5">
+                <span class="w-2 animate-bounce rounded-full bg-white" style="height:35%;animation-delay:0ms"/>
+                <span class="w-2 animate-bounce rounded-full bg-white" style="height:75%;animation-delay:90ms"/>
+                <span class="w-2 animate-bounce rounded-full bg-white" style="height:55%;animation-delay:180ms"/>
+                <span class="w-2 animate-bounce rounded-full bg-white" style="height:95%;animation-delay:60ms"/>
+                <span class="w-2 animate-bounce rounded-full bg-white" style="height:45%;animation-delay:150ms"/>
+              </span>
+              <svg v-else class="h-11 w-11 animate-spin text-slate-400" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+              </svg>
+            </span>
+          </button>
+
+          <div class="flex flex-col items-center gap-2 min-h-[64px]" aria-live="polite">
+            <p class="text-sm font-semibold text-slate-500 h-5">{{ convoStatusLabel }}</p>
+            <p v-if="convoTranscript" class="max-w-xs text-center text-sm italic leading-relaxed text-slate-500">
+              "{{ convoTranscript }}"
+            </p>
+            <p v-else-if="convoStatus === 'idle' && lastAiMsg" class="text-xs text-slate-400 text-center">
+              Tap to speak · pausing sends automatically
+            </p>
+          </div>
+
+          <div v-if="lastActions.length && convoStatus !== 'listening'" class="w-full flex flex-col gap-2">
+            <LcActionCard v-for="(action, ai) in lastActions" :key="action._id"
+              :action="action" density="roomy"
+              @navigate="clickNavigateAction(messages.length - 1, ai)" />
+          </div>
+
+          <div v-if="error" class="flex items-center gap-2 max-w-sm rounded-xl bg-rose-50 border border-rose-100 px-4 py-3">
+            <AlertCircle class="h-4 w-4 text-rose-500 shrink-0" aria-hidden="true" />
+            <span class="text-sm text-rose-600 flex-1">{{ error }}</span>
+            <button v-if="messages.length" @click="retryFromMessage(messages.length - 1)"
+              class="inline-flex items-center gap-1 rounded-lg bg-white border border-rose-200 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 transition">
+              <RefreshCw class="h-3 w-3" aria-hidden="true" />Retry
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <!-- TEXT MODE -->
+      <template v-else>
+        <div ref="chatEl" class="flex-1 overflow-y-auto">
+          <div class="mx-auto max-w-2xl px-4 py-6 flex flex-col gap-4">
+            <p v-if="error" class="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{{ error }}</p>
+
+            <div v-for="(msg, msgIdx) in messages" :key="msg._id">
+              <div v-if="msg.role === 'assistant'" class="flex items-start gap-3">
+                <div class="shrink-0 h-8 w-8 rounded-xl flex items-center justify-center shadow-sm mt-0.5"
+                     style="background:linear-gradient(135deg,#0d5f6b,#0e8095)" aria-hidden="true">
+                  <Sparkles class="h-4 w-4 text-white" />
+                </div>
+                <div class="flex flex-col gap-2 flex-1 min-w-0">
+                  <div v-if="streaming && msgIdx === messages.length - 1 && !msg.content"
+                       class="bubble-ai inline-flex items-center gap-1.5 w-fit text-xs">
+                    <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
+                  </div>
+                  <div v-else-if="msg.content" class="bubble-ai whitespace-pre-wrap text-sm">{{ msg.content }}</div>
+
+                  <div v-if="msg.failed && !(streaming && msgIdx === messages.length - 1)"
+                       class="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs w-fit">
+                    <AlertCircle class="h-4 w-4 text-rose-500 shrink-0" aria-hidden="true" />
+                    <span class="text-rose-700 font-medium">{{ msg.errorMsg || "LC didn't respond clearly." }}</span>
+                    <button @click="retryFromMessage(msgIdx)" :disabled="streaming"
+                      class="ml-1 inline-flex items-center gap-1 rounded-lg bg-white border border-rose-200 px-2 py-0.5 text-[11px] font-bold text-rose-700 hover:bg-rose-100 transition disabled:opacity-40">
+                      <RefreshCw class="h-3 w-3" aria-hidden="true" />Retry
+                    </button>
+                  </div>
+
+                  <div v-if="msg.actions?.length && !(streaming && msgIdx === messages.length - 1)" class="flex flex-col gap-1.5 w-full max-w-full">
+                    <LcActionCard v-for="(action, ai) in msg.actions" :key="action._id"
+                      :action="action" density="compact"
+                      @navigate="clickNavigateAction(msgIdx, ai)" />
+                  </div>
+                </div>
+              </div>
+              <div v-else class="flex justify-end">
+                <div class="bubble-user max-w-[75%] text-sm">{{ msg.content }}</div>
+              </div>
+            </div>
+            <div class="h-2"></div>
+          </div>
+        </div>
+
+        <div class="shrink-0 px-4 py-4 border-t" style="border-color:rgba(0,0,0,0.06);background:white">
+          <div class="mx-auto max-w-2xl flex items-end gap-3">
+            <label class="sr-only" for="lc-page-input">Type your message to LC</label>
+            <textarea id="lc-page-input" v-model="textInput" @keydown.enter="onTextEnter"
+              :placeholder="conversationMode === 'planner' ? 'Tell LC what you want to achieve this month…' : 'Tell LC how things are going…'"
+              rows="1" :disabled="streaming"
+              class="input flex-1 resize-none leading-relaxed disabled:opacity-50 text-sm"
+              style="min-height:44px;max-height:140px;overflow-y:auto" />
+            <button @click="sendText" :disabled="!textInput.trim() || streaming"
+              aria-label="Send message"
+              class="btn btn-primary shrink-0 disabled:opacity-40" style="padding:10px 16px">
+              <Send class="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      </template>
+
+    </div>
+  </div>
+</template>

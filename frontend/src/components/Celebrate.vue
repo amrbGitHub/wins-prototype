@@ -3,7 +3,7 @@ import { ref, computed, onMounted, reactive } from 'vue'
 import { useApi } from '../composables/useApi.js'
 import { Trophy, Star, Sparkles, MessageSquare, Copy, RefreshCw, X, CheckCircle2, TrendingUp } from 'lucide-vue-next'
 
-const { apiFetch, apiFetchPublic } = useApi()
+const { apiFetch } = useApi()
 
 const entries = ref([])
 const goals   = ref([])
@@ -35,7 +35,7 @@ const groupedByDate = computed(() => {
 const achievedByMonth = computed(() => {
   const map = {}
   for (const goal of goals.value) {
-    if (goal.status !== 'achieved') continue
+    if (goal.status !== 'completed') continue
     const key = goal.month
     if (!map[key]) map[key] = { month: key, goals: [] }
     map[key].goals.push({ ...goal, _key: `goal-${goal.id}`, source: 'goal' })
@@ -66,7 +66,7 @@ function closeModal() { modal.open = false }
 async function generateMessage() {
   modal.loading = true; modal.error = ''; modal.draft = ''
   try {
-    const data = await apiFetchPublic('/api/generate-message', {
+    const data = await apiFetch('/api/generate-message', {
       method: 'POST',
       body: JSON.stringify({ win: modal.win, customRequest: modal.request }),
     })

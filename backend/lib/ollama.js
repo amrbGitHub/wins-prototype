@@ -1,9 +1,12 @@
 const { OLLAMA_BASE_URL, OLLAMA_MODEL } = require('../config')
 
 // ── Core chat call ────────────────────────────────────────────────────────────
-async function ollamaChat({ messages, temperature = 0.4, json = false }) {
+// `json`        - true → force valid JSON output (any shape)
+// `jsonSchema`  - object → force output to match this JSON schema (Ollama structured-output mode)
+async function ollamaChat({ messages, temperature = 0.4, json = false, jsonSchema = null }) {
   const body = { model: OLLAMA_MODEL, messages, temperature, stream: false }
-  if (json) body.format = 'json'
+  if (jsonSchema)   body.response_format = { type: 'json_schema', json_schema: { name: 'lc_response', schema: jsonSchema, strict: true } }
+  else if (json)    body.format = 'json'
 
   let resp
   try {
@@ -67,9 +70,10 @@ function parseChatResponse(content, defaults = {}) {
 }
 
 // ── Streaming chat call — async generator that yields delta strings ───────────
-async function* ollamaChatStream({ messages, temperature = 0.4, json = false }) {
+async function* ollamaChatStream({ messages, temperature = 0.4, json = false, jsonSchema = null }) {
   const body = { model: OLLAMA_MODEL, messages, temperature, stream: true }
-  if (json) body.format = 'json'
+  if (jsonSchema)   body.response_format = { type: 'json_schema', json_schema: { name: 'lc_response', schema: jsonSchema, strict: true } }
+  else if (json)    body.format = 'json'
 
   let resp
   try {

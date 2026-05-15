@@ -36,9 +36,10 @@ router.get('/stats', verifyToken, async (req, res) => {
   try {
     const [goalsRes, entriesRes] = await Promise.all([
       supabase.from('goals').select('status').eq('user_id', req.userId),
-      supabase.from('entries').select('analysis').eq('user_id', req.userId),
+      supabase.from('journal_entries').select('analysis').eq('user_id', req.userId),
     ])
-    const goalsMet  = (goalsRes.data  || []).filter(g => g.status === 'achieved').length
+    // canonical "goal complete" status is 'completed' (see batch 2)
+    const goalsMet  = (goalsRes.data  || []).filter(g => g.status === 'completed').length
     const totalWins = (entriesRes.data || []).reduce(
       (n, e) => n + (e.analysis?.wins?.length ?? 0), 0
     )

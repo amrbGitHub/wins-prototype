@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useApi } from '../composables/useApi.js'
+import { thisMonthLocal } from '../lib/dates.js'
 import {
   Target, CheckCircle2, Archive, Trash2, ChevronDown,
   Sparkles, RefreshCw, Calendar, TrendingUp, Play,
@@ -15,7 +16,7 @@ const goals           = ref([])
 const loading         = ref(true)
 const generatingSteps = ref(new Set())
 const expanded        = ref(new Set())
-const month           = ref(new Date().toISOString().slice(0, 7))
+const month           = ref(thisMonthLocal())
 
 // ── Manual goal creation ───────────────────────────────────────────────────
 const showAddForm  = ref(false)
@@ -57,12 +58,12 @@ const monthLabel = computed(() => {
 })
 
 const activeGoals   = computed(() => goals.value.filter(g => g.status === 'active'))
-const achievedGoals = computed(() => goals.value.filter(g => g.status === 'achieved'))
+const achievedGoals = computed(() => goals.value.filter(g => g.status === 'completed'))
 const shelvedGoals  = computed(() => goals.value.filter(g => g.status === 'shelved'))
 
 const overallProgress = computed(() => {
   if (!goals.value.length) return 0
-  const pcts = goals.value.map(g => g.status === 'achieved' ? 100 : (g.progress ?? 0))
+  const pcts = goals.value.map(g => g.status === 'completed' ? 100 : (g.progress ?? 0))
   return Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length)
 })
 
@@ -239,19 +240,19 @@ function progressColor(pct) {
             </div>
           </button>
 
-          <!-- Path 2: Go to Planner -->
+          <!-- Path 2: Plan with LC -->
           <button
-            @click="emit('navigate', 'planner')"
+            @click="emit('navigate', 'elsie')"
             class="group flex flex-col items-center gap-3 rounded-2xl border-2 p-6 text-center transition-all duration-200"
             style="border-color:#0d5f6b;background:linear-gradient(135deg,#f0fdfa,#e0f5f7)"
           >
             <div class="h-11 w-11 rounded-xl flex items-center justify-center transition-all group-hover:scale-110"
                  style="background:linear-gradient(135deg,#0d5f6b,#0e8095)">
-              <CalendarDays class="h-5 w-5 text-white" />
+              <Sparkles class="h-5 w-5 text-white" />
             </div>
             <div>
-              <p class="text-sm font-bold transition-colors" style="color:#0d5f6b">Build with AI in Planner</p>
-              <p class="text-xs text-slate-500 mt-0.5 leading-relaxed">Chat with your AI coach to create a focused plan for the month.</p>
+              <p class="text-sm font-bold transition-colors" style="color:#0d5f6b">Plan with LC</p>
+              <p class="text-xs text-slate-500 mt-0.5 leading-relaxed">Chat with LC and switch to "Plan my month" mode to set goals through conversation.</p>
             </div>
           </button>
         </div>
@@ -455,7 +456,7 @@ function progressColor(pct) {
           <!-- Action bar -->
           <div class="flex items-center justify-between px-6 py-3"
                style="border-top:1px solid rgba(0,0,0,0.05);background:#fafafa">
-            <button @click="updateStatus(goal, 'achieved')"
+            <button @click="updateStatus(goal, 'completed')"
                     class="flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-xl transition-all"
                     style="color:#059669;background:#f0fdf4;border:1px solid rgba(5,150,105,0.2)"
                     onmouseover="this.style.background='#dcfce7'"

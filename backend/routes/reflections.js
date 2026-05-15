@@ -7,8 +7,7 @@ const { toMonthLabel } = require('../lib/shapes')
 const router = Router()
 
 // ── POST /api/reflections/chat — stateless weekly review Q&A turn ─────────────
-// No auth required — stateless, like /api/planner/chat
-router.post('/chat', async (req, res) => {
+router.post('/chat', verifyToken, async (req, res) => {
   try {
     const { messages = [], goals = [], month } = req.body || {}
     const monthLabel    = toMonthLabel(month)
