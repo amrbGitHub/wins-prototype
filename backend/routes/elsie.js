@@ -46,7 +46,7 @@ router.post('/chat', verifyToken, async (req, res) => {
       : buildCheckinSystem({ nameStr, goalsCtx, reflectionCtx })
 
     const chatMessages = messages.length === 0
-      ? [{ role: 'user', content: 'Please start our check-in.' }]
+      ? [{ role: 'user', content: 'Please start this new chat with a short friendly greeting and ask what I would like help with.' }]
       : messages
 
     // ── SSE streaming ─────────────────────────────────────────────────────────

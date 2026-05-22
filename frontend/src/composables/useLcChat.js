@@ -120,6 +120,49 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
     nextTick(() => { if (chatEl.value) chatEl.value.scrollTop = chatEl.value.scrollHeight })
   }
 
+  function randomFrom(items) {
+    return items[Math.floor(Math.random() * items.length)]
+  }
+
+  function buildGreeting() {
+    const name = (getFirstName?.() || '').trim()
+    const hey = name ? `Hey ${name}` : 'Hey'
+    const plannerMode = getPlannerMode?.() || false
+    const options = plannerMode
+      ? [
+          `${hey}! What would you like to plan or shape into a goal today?`,
+          `${hey}! I can help turn what is on your mind into a clear goal. Where should we start?`,
+          `${hey}! Ready when you are. What do you want to focus on this month?`,
+          `${hey}! Tell me what you want to work toward, and I can help make it concrete.`,
+        ]
+      : [
+          `${hey}! What can I do for you today?`,
+          `${hey}! I am here whenever you want to update a goal, log a win, or talk something through.`,
+          `${hey}! What would you like help with right now?`,
+          `${hey}! Tell me what is going on, and I will help however I can.`,
+          `${hey}! Want to update progress, capture a win, or just check in?`,
+        ]
+    return randomFrom(options)
+  }
+
+  async function addGreeting({ speak = false } = {}) {
+    const greeting = buildGreeting()
+    messages.value.push({
+      _id: newId('m'),
+      role: 'assistant',
+      content: greeting,
+      actions: [],
+      failed: false,
+    })
+    scrollBottom()
+    onAfterTurn?.()
+    if (speak) {
+      await speakAI(greeting)
+      if (convoStatus.value === 'idle') startConvoListening()
+    }
+    return greeting
+  }
+
   // ── SSE call ───────────────────────────────────────────────────────────────
   async function callAPI(historyMessages, onDelta = null, signal = undefined) {
     let finalMessage = '', finalActions = [], serverFailed = false, serverErrorMsg = null, serverDropped = []
@@ -491,6 +534,12 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
   }
 
   async function runVoiceTurn() {
+    if (messages.value.length === 0) {
+      error.value = ''
+      await addGreeting({ speak: true })
+      return
+    }
+
     convoStatus.value = 'processing'
     error.value = ''
     const history = messages.value.map(m => ({ role: m.role, content: m.content }))
@@ -521,16 +570,7 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
 
   // ── text mode ──────────────────────────────────────────────────────────────
   async function runTextGreeting() {
-    messages.value.push({ _id: newId('m'), role: 'assistant', content: '', actions: [], failed: false })
-    const aiIdx = messages.value.length - 1
-    streaming.value = true
-    try {
-      const r = await streamAITurn(aiIdx, [])
-      scrollBottom()
-      if (r.ok) await runAutoActions(aiIdx)
-      scrollBottom()
-      onAfterTurn?.()
-    } finally { streaming.value = false }
+    await addGreeting()
   }
 
   async function sendTextMessage(text) {
