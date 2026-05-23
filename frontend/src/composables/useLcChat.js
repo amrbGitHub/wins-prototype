@@ -15,6 +15,7 @@
 import { ref, computed, nextTick, onUnmounted } from 'vue'
 import { useApi }   from './useApi.js'
 import { useTTS }   from './useTTS.js'
+import { useSTT }   from './useSTT.js'
 import { todayLocal, thisMonthLocal } from '../lib/dates.js'
 
 const WATCHDOG_MS = 60_000           // abort SSE if no chunk for this long
@@ -84,12 +85,30 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
   const streaming = ref(false)
   const chatEl   = ref(null)            // text-mode scroll container ref
 
-  // Voice mode
+  // Voice mode — STT backend (native SR or Whisper WASM) is owned by useSTT.
+  // useLcChat just orchestrates the user-facing state machine.
   const convoStatus     = ref('idle')   // idle | listening | processing | speaking
   const convoTranscript = ref('')
-  let   convoRecognition = null
-  let   _recId           = 0
-  let   _silenceTimer    = null
+
+  const stt = useSTT({
+    onText:  (text, isFinal) => {
+      convoTranscript.value = text
+      // We don't act on isFinal here — the manual-toggle flow processes the
+      // turn in onEnd. isFinal is informational for the transcript display only.
+    },
+    onError: (msg) => {
+      error.value = msg
+      convoStatus.value = 'idle'
+    },
+    onEnd: async () => {
+      const text = convoTranscript.value.trim()
+      if (!text) { convoStatus.value = 'idle'; return }
+      // Keep the transcript visible through processing + speaking so the user
+      // can confirm what was captured. It's cleared by the next startConvoListening.
+      messages.value.push({ _id: newId('m'), role: 'user', content: text })
+      await runVoiceTurn()
+    },
+  })
 
   // ── derived ────────────────────────────────────────────────────────────────
   const lastAiMsg = computed(() => {
@@ -157,8 +176,8 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
     scrollBottom()
     onAfterTurn?.()
     if (speak) {
-      await speakAI(greeting)
-      if (convoStatus.value === 'idle') startConvoListening()
+      const completed = await speakAI(greeting)
+      if (completed && convoStatus.value === 'idle') startConvoListening()
     }
     return greeting
   }
@@ -449,88 +468,40 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
   }
 
   // ── voice mode ─────────────────────────────────────────────────────────────
+  // Speaks `text` and returns true if it played to completion, false if it was
+  // interrupted (the user tapped the mic mid-speech, which changes convoStatus
+  // out from under us). The caller uses this signal to decide whether to
+  // auto-resume listening — we don't want to start a fresh recording on top of
+  // one the user just opened by interrupting.
   async function speakAI(text) {
-    if (!text) { convoStatus.value = 'idle'; return }
-    convoStatus.value = 'speaking'
-    try { await tts.speak(text) } catch { /* speak() may be aborted on mic tap */ }
-    convoStatus.value = 'idle'
-  }
-
-  function clearSilenceTimer() {
-    if (_silenceTimer) { clearTimeout(_silenceTimer); _silenceTimer = null }
-  }
-  function armSilenceTimer(rec, myId) {
-    clearSilenceTimer()
-    _silenceTimer = setTimeout(() => {
-      _silenceTimer = null
-      // bail out if a newer recognition has superseded this one
-      if (myId !== _recId) return
-      try { rec.stop() } catch { /* ignore */ }
-    }, 1500)
-  }
-
-  // Always nulls the reference. `graceful` = let onend fire normally; otherwise abort.
-  function stopConvoRecognition(graceful = false) {
-    clearSilenceTimer()
-    _recId++   // any in-flight handlers tied to old _recId will short-circuit
-    if (convoRecognition) {
-      try { graceful ? convoRecognition.stop() : convoRecognition.abort() } catch { /* ignore */ }
-      convoRecognition = null
+    if (!text) {
+      if (convoStatus.value === 'speaking') convoStatus.value = 'idle'
+      return false
     }
+    convoStatus.value = 'speaking'
+    try { await tts.speak(text) } catch { /* aborted */ }
+    const interrupted = convoStatus.value !== 'speaking'
+    if (!interrupted) convoStatus.value = 'idle'
+    return !interrupted
   }
 
-  function startConvoListening() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) { error.value = 'Voice input requires Chrome or Edge.'; return }
+  // Manual-toggle Convo mode: the user starts and ends a turn by clicking the
+  // orb. We do NOT auto-stop on silence. Whisper users see the model-loading
+  // progress on first start (via stt.isModelLoading / stt.modelLoadProgress).
 
-    stopConvoRecognition(false)
+  function stopConvoRecognition(graceful = false) {
+    if (graceful) stt.stop()
+    else          stt.abort()
+  }
+
+  async function startConvoListening() {
+    if (!stt.isSupported) {
+      error.value = 'Voice input is not supported in this browser'
+      return
+    }
     convoTranscript.value = ''
     convoStatus.value = 'listening'
-    const myId = ++_recId
-    const rec  = new SR()
-    convoRecognition = rec
-    rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US'
-    let finalText = ''
-
-    rec.onresult = (ev) => {
-      if (myId !== _recId) return
-      let interim = ''
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        if (ev.results[i].isFinal) { finalText += ev.results[i][0].transcript + ' '; armSilenceTimer(rec, myId) }
-        else interim += ev.results[i][0].transcript
-      }
-      convoTranscript.value = (finalText + interim).trimEnd()
-    }
-
-    rec.onend = async () => {
-      clearSilenceTimer()
-      if (myId !== _recId) return
-      convoRecognition = null
-      const text = finalText.trim()
-      if (!text) {
-        if (convoStatus.value === 'listening') startConvoListening()
-        else convoStatus.value = 'idle'
-        return
-      }
-      convoTranscript.value = ''
-      messages.value.push({ _id: newId('m'), role: 'user', content: text })
-      await runVoiceTurn()
-    }
-
-    rec.onerror = (e) => {
-      if (myId !== _recId) return
-      if (e.error === 'no-speech') return
-      convoStatus.value = 'idle'
-      error.value = `Mic error: ${e.error}`
-    }
-
-    try { rec.start() } catch (e) {
-      // InvalidStateError on rapid toggles. Settle and retry.
-      console.warn('[LC] rec.start() threw, retrying:', e)
-      _recId++
-      convoRecognition = null
-      setTimeout(() => { if (convoStatus.value === 'listening') startConvoListening() }, 250)
-    }
+    await stt.start()
   }
 
   async function runVoiceTurn() {
@@ -549,8 +520,13 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
     onAfterTurn?.()
     if (r.ok) {
       await runAutoActions(aiIdx)
-      await speakAI(messages.value[aiIdx].content)
-      if (messages.value.length > 0 && convoStatus.value === 'idle') startConvoListening()
+      const completed = await speakAI(messages.value[aiIdx].content)
+      // Auto-open the mic so the user can reply hands-free. They close it by
+      // tapping the orb when they're done. If they interrupted the AI's
+      // speech, `completed` is false and they're already recording — skip.
+      if (completed && convoStatus.value === 'idle') {
+        await startConvoListening()
+      }
     } else {
       error.value = messages.value[aiIdx].errorMsg
       convoStatus.value = 'idle'
@@ -627,6 +603,11 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
     lastAiMsg, lastActions, convoStatusLabel,
     // tts passthrough (read-only)
     ttsSupported: tts.isSupported, ttsLoading: tts.isLoading, ttsLoadProgress: tts.loadProgress,
+    // stt passthrough — for showing model-load progress and detecting Whisper backend
+    sttSupported:    computed(() => stt.isSupported),
+    sttBackend:      stt.backend,        // 'native' | 'whisper' | 'none'
+    sttLoading:      stt.isModelLoading,
+    sttLoadProgress: stt.modelLoadProgress,
     // mutators
     reset, stopAll,
     runTextGreeting, sendTextMessage,

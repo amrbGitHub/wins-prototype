@@ -18,8 +18,7 @@ const conversationMode = ref('checkin')
 const plannerMode      = computed(() => conversationMode.value === 'planner')
 
 // ── Input mode ─────────────────────────────────────────────────────────────
-const srSupported  = !!(window.SpeechRecognition || window.webkitSpeechRecognition)
-const inputMode    = ref('voice')
+const inputMode = ref('voice')
 
 // ── Conversation persistence ───────────────────────────────────────────────
 const conversations     = ref([])
@@ -50,6 +49,7 @@ const {
   convoStatus, convoTranscript,
   lastAiMsg, lastActions, convoStatusLabel,
   ttsSupported, ttsLoading, ttsLoadProgress,
+  sttSupported, sttBackend, sttLoading, sttLoadProgress,
   reset, stopAll,
   runTextGreeting, sendTextMessage,
   runVoiceTurn, toggleConvoMic,
@@ -57,7 +57,10 @@ const {
   rehydrateActions, newId,
 } = lc
 
-const voiceCapable = computed(() => srSupported && ttsSupported.value)
+const voiceCapable = computed(() => sttSupported.value && ttsSupported.value)
+const voiceModelLoading  = computed(() => ttsLoading.value || sttLoading.value)
+const voiceModelProgress = computed(() => sttLoading.value ? sttLoadProgress.value : ttsLoadProgress.value)
+const voiceModelLabel    = computed(() => sttLoading.value ? 'Loading speech recognition…' : 'Loading voice…')
 
 // ── Text input state ───────────────────────────────────────────────────────
 const textInput = ref('')
@@ -375,18 +378,21 @@ function relTime(ts) {
             </div>
           </Transition>
 
-          <div v-if="ttsLoading" class="flex flex-col items-center gap-3">
-            <div class="relative h-32 w-32" role="progressbar" :aria-valuenow="ttsLoadProgress" aria-valuemin="0" aria-valuemax="100" aria-label="Loading voice model">
+          <div v-if="voiceModelLoading" class="flex flex-col items-center gap-3">
+            <div class="relative h-32 w-32" role="progressbar" :aria-valuenow="voiceModelProgress" aria-valuemin="0" aria-valuemax="100" :aria-label="voiceModelLabel">
               <svg class="h-32 w-32 -rotate-90" viewBox="0 0 100 100" aria-hidden="true">
                 <circle cx="50" cy="50" r="40" fill="none" stroke="#e2e8f0" stroke-width="6" />
                 <circle cx="50" cy="50" r="40" fill="none" stroke="#0d5f6b" stroke-width="6" stroke-linecap="round"
                   :stroke-dasharray="`${2 * Math.PI * 40}`"
-                  :stroke-dashoffset="`${2 * Math.PI * 40 * (1 - ttsLoadProgress / 100)}`"
+                  :stroke-dashoffset="`${2 * Math.PI * 40 * (1 - voiceModelProgress / 100)}`"
                   class="transition-all duration-300" />
               </svg>
-              <span class="absolute inset-0 flex items-center justify-center text-sm font-bold text-[#0d5f6b]">{{ ttsLoadProgress }}%</span>
+              <span class="absolute inset-0 flex items-center justify-center text-sm font-bold text-[#0d5f6b]">{{ voiceModelProgress }}%</span>
             </div>
-            <p class="text-sm font-semibold text-slate-600">Loading voice…</p>
+            <p class="text-sm font-semibold text-slate-600">{{ voiceModelLabel }}</p>
+            <p v-if="sttLoading" class="text-[11px] text-slate-400 max-w-[240px] text-center">
+              One-time download (~75MB). Cached for future sessions.
+            </p>
           </div>
 
           <button v-else @click="toggleConvoMic" :disabled="convoStatus === 'processing'"
@@ -427,13 +433,16 @@ function relTime(ts) {
             </span>
           </button>
 
-          <div class="flex flex-col items-center gap-2 min-h-[64px]" aria-live="polite">
+          <div class="flex flex-col items-center gap-2.5 min-h-[80px] w-full" aria-live="polite">
             <p class="text-sm font-semibold text-slate-500 h-5">{{ convoStatusLabel }}</p>
-            <p v-if="convoTranscript" class="max-w-xs text-center text-sm italic leading-relaxed text-slate-500">
-              "{{ convoTranscript }}"
+            <!-- Live transcription. Native SR fills as the user speaks; Whisper
+                 fills it after the user taps to stop. Persists through
+                 processing + speaking so the user can confirm what was captured. -->
+            <p v-if="convoTranscript" class="w-full max-w-md text-center text-base leading-snug text-slate-700 font-medium px-4 py-2 rounded-xl bg-slate-50 border border-slate-100">
+              {{ convoTranscript }}
             </p>
             <p v-else-if="convoStatus === 'idle' && lastAiMsg" class="text-xs text-slate-400 text-center">
-              Tap to speak · pausing sends automatically
+              Tap to start speaking
             </p>
           </div>
 
