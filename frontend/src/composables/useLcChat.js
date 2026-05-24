@@ -538,9 +538,12 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
     messages.value.push({ _id: newId('m'), role: 'assistant', content: '', actions: [], failed: false })
     const aiIdx = messages.value.length - 1
     const r = await streamAITurn(aiIdx, history, { showLive: false })
-    onAfterTurn?.()
     if (r.ok) {
       await runAutoActions(aiIdx)
+      // Persist AFTER actions transition to their final _state. Persisting
+      // before action execution caused stuck-pending rehydration: reopening
+      // the chat would show successful actions as "Interrupted — retry."
+      onAfterTurn?.()
       const completed = await speakAI(messages.value[aiIdx].content)
       // Auto-open the mic so the user can reply hands-free. They close it by
       // tapping the orb when they're done. If they interrupted the AI's
@@ -549,6 +552,7 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
         await startConvoListening()
       }
     } else {
+      onAfterTurn?.()
       error.value = messages.value[aiIdx].errorMsg
       convoStatus.value = 'idle'
     }
