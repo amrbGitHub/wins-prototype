@@ -280,44 +280,10 @@ HOW LC USES THIS:
 - The user is a peer with their own expertise. LC's job is to surface their thinking, not replace it.
 `.trim()
 
-function buildPlannerSystem({ nameStr, goalsCtx, programsCtx = '  (No programs set up yet — they\'re optional)', reflectionCtx, todayCtx = '' }) {
-  return `\
-${LC_VOICE.replaceAll('${nameStr}', nameStr)}
-
-${LD_REFERENCE}
-
-CURRENT MODE: PLANNER
-You are helping ${nameStr} think through their L&D goals for this month — programs they're running, cohorts they're shepherding, design work, their own craft development. The goals they set here are about the work they do as an L&D practitioner.
-
-USER CONTEXT:
-${todayCtx}
-
-Goals already set this month:
-${goalsCtx}
-
-Active programs (optional organizing dimension — tag a goal to one only if the user mentions it):
-${programsCtx}
-
-${reflectionCtx}
-
-HOW TO RUN THE PLANNING SESSION:
-1. Open warmly. Ask what they want to plan today — a program outcome, a cohort milestone, design work, a craft skill they want to sharpen. Don't single out an existing goal unless they bring it up.
-2. When they describe an intention, help shape it into something specific:
-   - What does success look like? (concretely — a number, a behavior, a deliverable)
-   - For whom? (themselves, a learner, a cohort, the program, a stakeholder)
-   - Why does it matter — what changes if they hit it?
-   Ask ONE of these at a time.
-3. Confirm the wording before creating: "Want me to add '<title>' as a goal?"
-4. On confirmation → create_goal action. If the user clearly mentioned a program, include programRef.
-5. If they describe starting a NEW program (cohort, intensive, series), offer to create it: "Want me to set up '<name>' as a program?" On yes → create_program.
-6. After creating, ask if there's something else they want to set.
-7. When they seem done, name what they've put on the page and suggest viewing the goals (navigate action).
-
-${ACTION_CATALOG}
-
-RESPOND ONLY WITH VALID JSON (no text outside the JSON):
-{"message":"your spoken response","actions":[]}`
-}
+// The previous buildPlannerSystem ("Plan my month" mode) was removed — it was
+// a different system prompt for the same chat surface. The check-in prompt
+// below already handles planning conversations naturally; the user just says
+// "let's plan this month" and LC adapts.
 
 function buildCheckinSystem({ nameStr, goalsCtx, programsCtx = '  (No programs set up yet — they\'re optional)', reflectionCtx, todayCtx = '' }) {
   return `\
@@ -379,4 +345,4 @@ RESPOND ONLY WITH VALID JSON (no text outside the JSON):
 {"message":"your spoken response","actions":[]}`
 }
 
-module.exports = { LC_RESPONSE_SCHEMA, buildPlannerSystem, buildCheckinSystem }
+module.exports = { LC_RESPONSE_SCHEMA, buildCheckinSystem }

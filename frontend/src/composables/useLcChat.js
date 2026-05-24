@@ -74,7 +74,7 @@ export function actionPendingLabel(action) {
 }
 
 // ── core composable ──────────────────────────────────────────────────────────
-export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavigate, onAfterTurn } = {}) {
+export function useLcChat({ getFirstName, onGoalsUpdated, onNavigate, onAfterTurn } = {}) {
   const { apiStream, apiFetch } = useApi()
   const tts = useTTS()
 
@@ -147,15 +147,7 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
   function buildGreeting() {
     const name = (getFirstName?.() || '').trim()
     const hey = name ? `Hey ${name}` : 'Hey'
-    const plannerMode = getPlannerMode?.() || false
-    const options = plannerMode
-      ? [
-          `${hey}! What would you like to plan or shape into a goal today?`,
-          `${hey}! I can help turn what is on your mind into a clear goal. Where should we start?`,
-          `${hey}! Ready when you are. What do you want to focus on this month?`,
-          `${hey}! Tell me what you want to work toward, and I can help make it concrete.`,
-        ]
-      : [
+    const options = [
           `${hey}! What can I do for you today?`,
           `${hey}! I am here whenever you want to update a goal, log a win, or talk something through.`,
           `${hey}! What would you like help with right now?`,
@@ -189,9 +181,8 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
     for await (const chunk of apiStream('/api/elsie/chat', {
       method: 'POST',
       body: JSON.stringify({
-        messages:    historyMessages,
-        firstName:   getFirstName?.() || '',
-        plannerMode: getPlannerMode?.() || false,
+        messages:  historyMessages,
+        firstName: getFirstName?.() || '',
       }),
       signal,
     })) {

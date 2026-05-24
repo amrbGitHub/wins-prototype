@@ -24,7 +24,6 @@ const {
   retryFromMessage, clickNavigateAction,
 } = useLcChat({
   getFirstName:   () => props.firstName,
-  getPlannerMode: () => false,
   onGoalsUpdated: () => emit('goals-updated'),
   onNavigate:     (id) => { emit('navigate', id); emit('close') },
 })

@@ -4,7 +4,7 @@ const { verifyToken } = require('../middleware/auth')
 const { ollamaChatStream, parseChatResponse } = require('../lib/ollama')
 const { dbGoalToShape, dbProgramToShape } = require('../lib/shapes')
 const { resolveActions, messageClaimsAction, detectUserIntent, validateIntentMatch, synthesizeRenameAction } = require('../lib/actionResolver')
-const { LC_RESPONSE_SCHEMA, buildPlannerSystem, buildCheckinSystem } = require('../prompts/lc')
+const { LC_RESPONSE_SCHEMA, buildCheckinSystem } = require('../prompts/lc')
 
 const router = Router()
 
@@ -12,7 +12,7 @@ const router = Router()
 // (route path kept for backwards compatibility; user-facing name is "LC")
 router.post('/chat', verifyToken, async (req, res) => {
   try {
-    const { messages = [], firstName = '', plannerMode = false } = req.body || {}
+    const { messages = [], firstName = '' } = req.body || {}
 
     // Fetch active goals + active/completed programs + last reflection for context
     const [goalsResult, programsResult, reflectionsResult] = await Promise.all([
@@ -58,9 +58,7 @@ router.post('/chat', verifyToken, async (req, res) => {
     const todayDow = now.toLocaleDateString('en-US', { weekday: 'long' })
     const todayCtx = `Today is ${todayDow}, ${todayIso}.`
 
-    const system = plannerMode
-      ? buildPlannerSystem({ nameStr, goalsCtx, programsCtx, reflectionCtx, todayCtx })
-      : buildCheckinSystem({ nameStr, goalsCtx, programsCtx, reflectionCtx, todayCtx })
+    const system = buildCheckinSystem({ nameStr, goalsCtx, programsCtx, reflectionCtx, todayCtx })
 
     const chatMessages = messages.length === 0
       ? [{ role: 'user', content: 'Please start this new chat with a short friendly greeting and ask what I would like help with.' }]

@@ -5,7 +5,7 @@ import { useLcChat } from '../composables/useLcChat.js'
 import LcActionCard from './LcActionCard.vue'
 import {
   Sparkles, Send, Trash2, Plus, RefreshCw, MessageSquare, Mic,
-  CalendarDays, MessagesSquare, PanelLeft, PanelLeftClose, AlertCircle,
+  MessagesSquare, PanelLeft, PanelLeftClose, AlertCircle,
 } from 'lucide-vue-next'
 
 const props = defineProps({ firstName: { type: String, default: '' } })
@@ -13,9 +13,10 @@ const emit  = defineEmits(['goals-updated', 'navigate'])
 
 const { apiFetch } = useApi()
 
-// ── Conversation mode (check-in vs planner) ────────────────────────────────
-const conversationMode = ref('checkin')
-const plannerMode      = computed(() => conversationMode.value === 'planner')
+// Conversation mode tabs removed — "Plan my month" was a separate system
+// prompt for what is effectively the same chat surface, and the L&D-aware
+// check-in prompt already handles planning conversations naturally
+// ("let's plan my month" works fine without a mode switch).
 
 // ── Input mode ─────────────────────────────────────────────────────────────
 const inputMode = ref('voice')
@@ -38,7 +39,6 @@ let _lastPersistedCount = 0
 // ── LC chat composable ─────────────────────────────────────────────────────
 const lc = useLcChat({
   getFirstName:   () => props.firstName,
-  getPlannerMode: () => plannerMode.value,
   onGoalsUpdated: () => emit('goals-updated'),
   onNavigate:     (id) => emit('navigate', id),
   onAfterTurn:    () => persistConversationTail(),
@@ -83,12 +83,6 @@ function switchInputMode(newMode) {
   inputMode.value = newMode
 }
 
-async function switchConversationMode(newMode) {
-  if (conversationMode.value === newMode) return
-  conversationMode.value = newMode
-  await startNewChat()
-}
-
 // ── Conversation persistence ───────────────────────────────────────────────
 async function loadConversations() {
   try {
@@ -109,7 +103,7 @@ async function startNewChat() {
   stopAll()
   reset()
   conversationId.value     = null
-  conversationTitle.value  = conversationMode.value === 'planner' ? 'Plan my month' : 'New chat'
+  conversationTitle.value  = 'New chat'
   _lastPersistedCount = 0
 
   try {
@@ -117,11 +111,10 @@ async function startNewChat() {
       method: 'POST',
       body: JSON.stringify({
         title: conversationTitle.value,
-        plannerMode: plannerMode.value,
         messages: [],
       }),
     })
-    if (myGen !== _saveGen) return   // another switch happened — bail
+    if (myGen !== _saveGen) return
     conversationId.value = created.id
     await loadConversations()
   } catch (e) {
@@ -146,7 +139,6 @@ async function openConversation(id) {
 
     conversationId.value     = full.id
     conversationTitle.value  = full.title || 'Chat'
-    conversationMode.value   = full.plannerMode ? 'planner' : 'checkin'
     // Rehydrate messages — heal any stuck-pending action statuses.
     messages.value = (full.messages || []).map(m => {
       const id = m._id || newId('m')
@@ -275,13 +267,12 @@ function relTime(ts) {
           :class="conversationId === c.id ? 'bg-teal-50 ring-1 ring-teal-200' : 'hover:bg-slate-50'"
           :aria-current="conversationId === c.id ? 'true' : 'false'">
           <div class="shrink-0 mt-0.5" aria-hidden="true">
-            <CalendarDays v-if="c.plannerMode" class="h-3.5 w-3.5 text-violet-500" />
-            <Sparkles      v-else              class="h-3.5 w-3.5 text-teal-500" />
+            <Sparkles class="h-3.5 w-3.5 text-teal-500" />
           </div>
           <div class="flex-1 min-w-0">
             <p class="text-[12px] font-semibold text-slate-700 truncate">{{ c.title || 'New chat' }}</p>
             <p class="text-[10px] text-slate-400 mt-0.5">
-              {{ c.plannerMode ? 'Planner · ' : '' }}{{ relTime(c.updatedAt) }}
+              {{ relTime(c.updatedAt) }}
             </p>
           </div>
           <button @click="deleteConversation(c.id, $event)"
@@ -327,19 +318,6 @@ function relTime(ts) {
             </div>
 
             <div class="flex items-center gap-2 flex-wrap">
-              <div class="flex overflow-hidden rounded-xl ring-1 ring-white/15 bg-white/10 p-0.5" role="tablist" aria-label="Conversation mode">
-                <button @click="switchConversationMode('checkin')" role="tab" :aria-selected="conversationMode === 'checkin'"
-                  class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-all"
-                  :class="conversationMode === 'checkin' ? 'bg-white text-slate-700 shadow-sm' : 'text-white/70 hover:text-white'">
-                  <Sparkles class="h-3 w-3" aria-hidden="true" />Check-in
-                </button>
-                <button @click="switchConversationMode('planner')" role="tab" :aria-selected="conversationMode === 'planner'"
-                  class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-all"
-                  :class="conversationMode === 'planner' ? 'bg-white text-slate-700 shadow-sm' : 'text-white/70 hover:text-white'">
-                  <CalendarDays class="h-3 w-3" aria-hidden="true" />Plan my month
-                </button>
-              </div>
-
               <div class="flex overflow-hidden rounded-lg ring-1 ring-white/15 bg-white/10 p-0.5" role="tablist" aria-label="Input mode">
                 <button @click="switchInputMode('voice')" :disabled="!voiceCapable" role="tab" :aria-selected="inputMode === 'voice'"
                   class="flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all disabled:opacity-40"
@@ -361,8 +339,7 @@ function relTime(ts) {
           </div>
 
           <p class="mt-2.5 text-[11px] text-teal-200/55">
-            <span v-if="conversationMode === 'checkin'">Tell me about your wins, progress, or how things are going — I'll log, update, and celebrate them for you.</span>
-            <span v-else>Let's set your goals for the month. Tell me what you want to focus on and I'll create them.</span>
+            Tell me about your wins, your sessions, what's going on with a learner or program — I'll log, update, and think through it with you.
           </p>
         </div>
       </div>
@@ -511,7 +488,7 @@ function relTime(ts) {
           <div class="mx-auto max-w-2xl flex items-end gap-3">
             <label class="sr-only" for="lc-page-input">Type your message to LC</label>
             <textarea id="lc-page-input" v-model="textInput" @keydown.enter="onTextEnter"
-              :placeholder="conversationMode === 'planner' ? 'Tell LC what you want to achieve this month…' : 'Tell LC how things are going…'"
+              placeholder="Tell LC how things are going…"
               rows="1" :disabled="streaming"
               class="input flex-1 resize-none leading-relaxed disabled:opacity-50 text-sm"
               style="min-height:44px;max-height:140px;overflow-y:auto" />
