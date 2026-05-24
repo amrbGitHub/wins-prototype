@@ -1,6 +1,6 @@
 <script setup>
 import {
-  CheckCircle2, AlertCircle, Plus, TrendingUp, Trash2, Trophy, ArrowRight,
+  CheckCircle2, AlertCircle, Plus, TrendingUp, Trash2, Trophy, ArrowRight, Layers,
 } from 'lucide-vue-next'
 import { actionColor, actionDoneLabel, actionPendingLabel } from '../composables/useLcChat.js'
 
@@ -11,11 +11,12 @@ const props = defineProps({
 const emit = defineEmits(['navigate'])
 
 function actionIcon(type) {
-  if (type === 'create_goal') return Plus
-  if (type === 'update_goal') return TrendingUp
-  if (type === 'delete_goal') return Trash2
-  if (type === 'log_win')     return Trophy
-  if (type === 'navigate')    return ArrowRight
+  if (type === 'create_goal')    return Plus
+  if (type === 'update_goal')    return TrendingUp
+  if (type === 'delete_goal')    return Trash2
+  if (type === 'log_win')        return Trophy
+  if (type === 'create_program') return Layers
+  if (type === 'navigate')       return ArrowRight
   return CheckCircle2
 }
 </script>

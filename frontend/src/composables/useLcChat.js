@@ -26,12 +26,13 @@ const TTS_LOAD_TIMEOUT_MS = 30_000   // give up loading the voice model after th
 export const ACTION_TYPES = ['create_goal', 'update_goal', 'delete_goal', 'log_win', 'navigate']
 
 export function actionColor(type) {
-  if (type === 'create_goal') return { icon: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' }
-  if (type === 'update_goal') return { icon: 'text-teal-600',    bg: 'bg-teal-50',    border: 'border-teal-200' }
-  if (type === 'delete_goal') return { icon: 'text-rose-600',    bg: 'bg-rose-50',    border: 'border-rose-200' }
-  if (type === 'log_win')     return { icon: 'text-amber-600',   bg: 'bg-amber-50',   border: 'border-amber-200' }
-  if (type === 'navigate')    return { icon: 'text-violet-600',  bg: 'bg-violet-50',  border: 'border-violet-200' }
-  return                             { icon: 'text-slate-500',   bg: 'bg-slate-50',   border: 'border-slate-200' }
+  if (type === 'create_goal')    return { icon: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' }
+  if (type === 'update_goal')    return { icon: 'text-teal-600',    bg: 'bg-teal-50',    border: 'border-teal-200' }
+  if (type === 'delete_goal')    return { icon: 'text-rose-600',    bg: 'bg-rose-50',    border: 'border-rose-200' }
+  if (type === 'log_win')        return { icon: 'text-amber-600',   bg: 'bg-amber-50',   border: 'border-amber-200' }
+  if (type === 'create_program') return { icon: 'text-cyan-600',    bg: 'bg-cyan-50',    border: 'border-cyan-200' }
+  if (type === 'navigate')       return { icon: 'text-violet-600',  bg: 'bg-violet-50',  border: 'border-violet-200' }
+  return                                { icon: 'text-slate-500',   bg: 'bg-slate-50',   border: 'border-slate-200' }
 }
 
 // Title helpers. Lifecycle:
@@ -46,29 +47,29 @@ function newRenameTitle(action) {
 }
 
 export function actionDoneLabel(action) {
-  if (action.type === 'create_goal') return `Goal created: "${action._result?.title || action.title || ''}"`
+  if (action.type === 'create_goal')    return `Goal created: "${action._result?.title || action.title || ''}"`
   if (action.type === 'update_goal') {
     const fields = action._result?.fields || []
     if (fields.includes('title'))  return `Renamed to "${newRenameTitle(action)}"`
     if (fields.includes('status')) return `Goal marked ${action._result?.status || action.status || ''}: "${existingGoalTitle(action)}"`
     return `Progress updated: "${existingGoalTitle(action) || 'goal'}" → ${action._result?.progress ?? action.progress}%`
   }
-  if (action.type === 'delete_goal') return `Goal deleted: "${existingGoalTitle(action)}"`
-  if (action.type === 'log_win')     return `Win logged: "${action._result?.title || action.title || ''}"`
+  if (action.type === 'delete_goal')    return `Goal deleted: "${existingGoalTitle(action)}"`
+  if (action.type === 'log_win')        return `Win logged: "${action._result?.title || action.title || ''}"`
+  if (action.type === 'create_program') return `Program created: "${action._result?.name || action.name || ''}"`
   return 'Done'
 }
 export function actionPendingLabel(action) {
   if (action.type === 'create_goal') return `Creating goal: "${action.title || ''}"`
   if (action.type === 'update_goal') {
-    // Rename: action.title set + no other fields → "Renaming to X"
-    // Other updates: use the existing goal title from the resolver
     if (action.title && action.title.trim() && action.progress === undefined && !action.status) {
       return `Renaming to "${action.title}"`
     }
     return `Updating "${action.goalTitle || 'goal'}"`
   }
-  if (action.type === 'delete_goal') return `Deleting goal: "${action.goalTitle || action.title || ''}"`
-  if (action.type === 'log_win')     return `Logging win: "${action.title || ''}"`
+  if (action.type === 'delete_goal')    return `Deleting goal: "${action.goalTitle || action.title || ''}"`
+  if (action.type === 'log_win')        return `Logging win: "${action.title || ''}"`
+  if (action.type === 'create_program') return `Creating program: "${action.name || ''}"`
   return 'Working…'
 }
 
@@ -356,9 +357,10 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
         const created = await apiFetch('/api/goals', {
           method: 'POST',
           body: JSON.stringify({
-            title: action.title,
+            title:       action.title,
             description: action.description,
-            month: thisMonthLocal(),
+            month:       thisMonthLocal(),
+            programId:   action.programId || null,   // optional, resolved server-side from programRef
           }),
         })
         action._result = { id: created.id, title: created.title }
@@ -394,7 +396,12 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
         const today = todayLocal()
         const entry = await apiFetch('/api/entries', {
           method: 'POST',
-          body:   JSON.stringify({ date: today, type: 'daily', text: action.story || action.title || 'Win' }),
+          body:   JSON.stringify({
+            date:      today,
+            type:      'daily',
+            text:      action.story || action.title || 'Win',
+            programId: action.programId || null,
+          }),
         })
         const winObj = {
           id:               newId('w'),
@@ -408,6 +415,20 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
           body:   JSON.stringify({ analysis: { summary: action.title || '', wins: [winObj] }, analysisFailed: false }),
         })
         action._result = { entryId: entry.id, title: winObj.title }
+        action._state  = 'done'
+      }
+      else if (action.type === 'create_program') {
+        const body = { name: action.name }
+        if (action.description)  body.description  = action.description
+        if (action.startDate)    body.startDate    = action.startDate
+        if (action.endDate)      body.endDate      = action.endDate
+        if (typeof action.learnerCount === 'number') body.learnerCount = action.learnerCount
+        if (action.status)       body.status       = action.status
+        const created = await apiFetch('/api/programs', {
+          method: 'POST',
+          body:   JSON.stringify(body),
+        })
+        action._result = { id: created.id, name: created.name }
         action._state  = 'done'
       }
       else if (action.type === 'navigate') {

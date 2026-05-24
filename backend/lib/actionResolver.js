@@ -12,7 +12,7 @@
 // reason in `notes`. Callers use `notes` to (a) annotate the message, (b) feed
 // the lie-detector that decides whether to mark the turn failed.
 
-const { GOAL_STATUSES, normaliseGoalStatus } = require('./shapes')
+const { GOAL_STATUSES, normaliseGoalStatus, PROGRAM_STATUSES, normaliseProgramStatus } = require('./shapes')
 
 // ── Fuzzy goal lookup ────────────────────────────────────────────────────────
 // Three-stage matcher: exact (case-insensitive) → containment → token overlap.
@@ -61,20 +61,95 @@ function findGoalByRef(goals, ref) {
   return bestScore >= 2 ? { goal: best, confidence: 'tokens' } : null
 }
 
+// ── Fuzzy program lookup ────────────────────────────────────────────────────
+// Same three-stage matcher pattern as findGoalByRef but against program names.
+function findProgramByRef(programs, ref) {
+  if (!ref || !programs?.length) return null
+  const r = String(ref).toLowerCase().trim()
+  if (!r) return null
+
+  const exact = programs.find(p => p.name.toLowerCase() === r)
+  if (exact) return { program: exact, confidence: 'exact' }
+
+  const contains = programs.filter(p => {
+    const n = p.name.toLowerCase()
+    return n.includes(r) || r.includes(n)
+  })
+  if (contains.length === 1) return { program: contains[0], confidence: 'contains' }
+
+  const STOP = new Set(['the', 'a', 'an', 'my', 'our', 'this', 'that', 'program', 'cohort', 'group', 'one', 'and', 'for', 'to', 'of'])
+  const tokenize = (s) => new Set(
+    String(s || '').toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length > 2 && !STOP.has(t))
+  )
+  const refTokens = tokenize(r)
+  if (!refTokens.size) {
+    return contains.length ? { program: contains[0], confidence: 'contains-ambiguous' } : null
+  }
+
+  let best = null, bestScore = 0
+  for (const p of programs) {
+    const nameTokens = tokenize(p.name)
+    const descTokens = tokenize(p.description)
+    let score = 0
+    for (const t of refTokens) {
+      if (nameTokens.has(t)) score += 2
+      else if (descTokens.has(t)) score += 1
+    }
+    if (score > bestScore) { bestScore = score; best = p }
+  }
+  return bestScore >= 2 ? { program: best, confidence: 'tokens' } : null
+}
+
+// Resolve an optional programRef on an action. Returns the resolved program
+// id or null. Never fails the whole action — a bad programRef just becomes
+// "no program tag", because programs are an optional dimension.
+function resolveProgramTag(a, programs) {
+  if (!programs?.length) return null
+  if (a.programId) {
+    const direct = programs.find(p => p.id === a.programId)
+    if (direct) return direct.id
+  }
+  const ref = String(a.programRef || '').trim()
+  if (!ref) return null
+  const hit = findProgramByRef(programs, ref)
+  return hit?.program?.id || null
+}
+
 // ── Per-action resolvers ─────────────────────────────────────────────────────
 // Each returns { ok, action?, reason?, note? }. Caller threads them through.
 
-function resolveCreateGoal(a) {
+function resolveCreateGoal(a, programs) {
   const title = String(a.title || '').trim()
   if (!title) return { ok: false, reason: 'create_goal needs a title' }
+  const programId = resolveProgramTag(a, programs)
   return {
     ok: true,
     action: {
-      type: 'create_goal',
+      type:        'create_goal',
       title,
       description: String(a.description || '').trim() || undefined,
+      programId:   programId || undefined,
     },
   }
+}
+
+function resolveCreateProgram(a) {
+  const name = String(a.name || a.title || '').trim()
+  if (!name) return { ok: false, reason: 'create_program needs a name' }
+  const action = {
+    type: 'create_program',
+    name,
+  }
+  const desc = String(a.description || '').trim()
+  if (desc) action.description = desc
+  if (typeof a.startDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.startDate)) action.startDate = a.startDate
+  if (typeof a.endDate   === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.endDate))   action.endDate   = a.endDate
+  if (typeof a.learnerCount === 'number' && a.learnerCount >= 0) action.learnerCount = Math.floor(a.learnerCount)
+  if (typeof a.status === 'string') {
+    const s = normaliseProgramStatus(a.status)
+    if (s && PROGRAM_STATUSES.includes(s)) action.status = s
+  }
+  return { ok: true, action }
 }
 
 function resolveGoalTargeted(a, goals, opts = {}) {
@@ -157,9 +232,10 @@ function resolveDeleteGoal(a, goals) {
   }
 }
 
-function resolveLogWin(a) {
+function resolveLogWin(a, programs) {
   const title = String(a.title || '').trim()
   if (!title) return { ok: false, reason: 'log_win needs a title' }
+  const programId = resolveProgramTag(a, programs)
   return {
     ok: true,
     action: {
@@ -170,12 +246,13 @@ function resolveLogWin(a) {
       celebrationIdeas: Array.isArray(a.celebrationIdeas)
         ? a.celebrationIdeas.filter(s => typeof s === 'string' && s.trim()).map(s => s.trim())
         : undefined,
+      programId: programId || undefined,
     },
   }
 }
 
 function resolveNavigate(a) {
-  const allowed = ['goals', 'celebrate', 'reflections', 'home']
+  const allowed = ['goals', 'celebrate', 'reflections', 'home', 'programs']
   const view = String(a.view || '').toLowerCase().trim()
   if (!allowed.includes(view)) return { ok: false, reason: `unknown view "${view}"` }
   return {
@@ -189,7 +266,7 @@ function resolveNavigate(a) {
 }
 
 // ── Orchestrator ─────────────────────────────────────────────────────────────
-function resolveActions(rawActions, goals) {
+function resolveActions(rawActions, goals, programs = []) {
   const actions = []
   const dropped = []
   if (!Array.isArray(rawActions)) return { actions, dropped }
@@ -200,11 +277,12 @@ function resolveActions(rawActions, goals) {
     }
     let r
     switch (a.type) {
-      case 'create_goal': r = resolveCreateGoal(a); break
-      case 'update_goal': r = resolveUpdateGoal(a, goals); break
-      case 'delete_goal': r = resolveDeleteGoal(a, goals); break
-      case 'log_win':     r = resolveLogWin(a); break
-      case 'navigate':    r = resolveNavigate(a); break
+      case 'create_goal':    r = resolveCreateGoal(a, programs); break
+      case 'update_goal':    r = resolveUpdateGoal(a, goals); break
+      case 'delete_goal':    r = resolveDeleteGoal(a, goals); break
+      case 'log_win':        r = resolveLogWin(a, programs); break
+      case 'navigate':       r = resolveNavigate(a); break
+      case 'create_program': r = resolveCreateProgram(a); break
       default:
         dropped.push({ type: a.type, reason: `unknown action type "${a.type}"` }); continue
     }
@@ -352,7 +430,7 @@ function synthesizeRenameAction(userMessage, goals) {
 }
 
 module.exports = {
-  resolveActions, findGoalByRef, messageClaimsAction,
+  resolveActions, findGoalByRef, findProgramByRef, messageClaimsAction,
   detectUserIntent, validateIntentMatch,
   synthesizeRenameAction,
 }

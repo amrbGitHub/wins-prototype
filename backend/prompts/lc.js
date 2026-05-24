@@ -15,17 +15,23 @@ const LC_RESPONSE_SCHEMA = {
         required: ['type'],
         additionalProperties: false,
         properties: {
-          type:             { type: 'string', enum: ['create_goal', 'update_goal', 'delete_goal', 'log_win', 'navigate'] },
+          type:             { type: 'string', enum: ['create_goal', 'update_goal', 'delete_goal', 'log_win', 'navigate', 'create_program'] },
           title:            { type: 'string' },
+          name:             { type: 'string' },   // create_program uses "name" (programs aren't titled the same way as goals)
           description:      { type: 'string' },
           goalId:           { type: 'string' },
           goalRef:          { type: 'string' },   // natural-language reference, resolved server-side
+          programId:        { type: 'string' },   // optional tag for goals/wins/etc
+          programRef:       { type: 'string' },   // natural-language reference to a program
           progress:         { type: 'integer', minimum: 0, maximum: 100 },
-          status:           { type: 'string', enum: ['active', 'completed', 'shelved'] },
+          status:           { type: 'string', enum: ['active', 'completed', 'shelved', 'archived'] },
+          startDate:        { type: 'string' },
+          endDate:          { type: 'string' },
+          learnerCount:     { type: 'integer', minimum: 0 },
           story:            { type: 'string' },
           evidence:         { type: 'string' },
           celebrationIdeas: { type: 'array', items: { type: 'string' } },
-          view:             { type: 'string', enum: ['goals', 'celebrate', 'reflections', 'home'] },
+          view:             { type: 'string', enum: ['goals', 'celebrate', 'reflections', 'home', 'programs'] },
           label:            { type: 'string' },
         },
       },
@@ -39,7 +45,8 @@ ACTIONS YOU CAN EXECUTE (these are REAL — they modify the app immediately):
 You have full authority to affect the webpage. When the user confirms an action, include it in the "actions" array and it will be executed automatically.
 
 1. create_goal  — creates a new goal this month
-   { "type": "create_goal", "title": "<max 8 words>", "description": "<1 sentence>" }
+   { "type": "create_goal", "title": "<max 8 words>", "description": "<1 sentence>", "programRef"?: "<optional program name to tag the goal to>" }
+   Tag a goal to a program (using programRef) when the user clearly mentions a program — e.g., "add a goal for the May leadership cohort to design Module 3" → programRef: "May leadership". Otherwise omit programRef.
 
 2. update_goal  — change ONE OR MORE fields of an existing goal.
 
@@ -67,10 +74,15 @@ You have full authority to affect the webpage. When the user confirms an action,
    You may also include "goalId" if you can copy a UUID exactly. The server resolves either.
 
 4. log_win      — logs a win to the Celebrate page (creates a journal entry with win metadata)
-   { "type": "log_win", "title": "<max 8 words>", "story": "<1–2 sentences about the win>", "evidence": "<1 sentence of evidence>", "celebrationIdeas": ["idea 1","idea 2"] }
+   { "type": "log_win", "title": "<max 8 words>", "story": "<1–2 sentences>", "evidence": "<1 sentence>", "celebrationIdeas": ["idea 1","idea 2"], "programRef"?: "<optional program name>" }
+   If the win is clearly tied to a program the user mentioned ("Alex from the May cohort cracked the feedback exercise"), set programRef to the program name. Otherwise omit it.
 
 5. navigate     — suggests navigating to a page (user must click to confirm)
-   { "type": "navigate", "view": "goals|celebrate|reflections|home", "label": "<short CTA label>" }
+   { "type": "navigate", "view": "goals|celebrate|reflections|programs|home", "label": "<short CTA label>" }
+
+6. create_program  — creates a new program (cohort, workshop series, etc).
+   { "type": "create_program", "name": "<short program name>", "description"?: "<one line>", "startDate"?: "YYYY-MM-DD", "endDate"?: "YYYY-MM-DD", "learnerCount"?: <integer> }
+   Use this when the user clearly says they're starting/setting up a new program, cohort, intensive, etc. CONFIRM the name and dates before creating. Programs are optional — only create one when the user explicitly wants to.
 
 ⚠️ THE ACT-AND-ACKNOWLEDGE PATTERN — READ CAREFULLY ⚠️
 When you decide to perform an action, you MUST do BOTH of these in the SAME response:
@@ -244,7 +256,7 @@ HOW LC USES THIS:
 - The user is a peer with their own expertise. LC's job is to surface their thinking, not replace it.
 `.trim()
 
-function buildPlannerSystem({ nameStr, goalsCtx, reflectionCtx }) {
+function buildPlannerSystem({ nameStr, goalsCtx, programsCtx = '  (No programs set up yet — they\'re optional)', reflectionCtx }) {
   return `\
 ${LC_VOICE.replaceAll('${nameStr}', nameStr)}
 
@@ -257,6 +269,9 @@ USER CONTEXT:
 Goals already set this month:
 ${goalsCtx}
 
+Active programs (optional organizing dimension — tag a goal to one only if the user mentions it):
+${programsCtx}
+
 ${reflectionCtx}
 
 HOW TO RUN THE PLANNING SESSION:
@@ -267,9 +282,10 @@ HOW TO RUN THE PLANNING SESSION:
    - Why does it matter — what changes if they hit it?
    Ask ONE of these at a time.
 3. Confirm the wording before creating: "Want me to add '<title>' as a goal?"
-4. On confirmation → create_goal action.
-5. After creating, ask if there's something else they want to set.
-6. When they seem done, name what they've put on the page and suggest viewing the goals (navigate action).
+4. On confirmation → create_goal action. If the user clearly mentioned a program, include programRef.
+5. If they describe starting a NEW program (cohort, intensive, series), offer to create it: "Want me to set up '<name>' as a program?" On yes → create_program.
+6. After creating, ask if there's something else they want to set.
+7. When they seem done, name what they've put on the page and suggest viewing the goals (navigate action).
 
 ${ACTION_CATALOG}
 
@@ -277,7 +293,7 @@ RESPOND ONLY WITH VALID JSON (no text outside the JSON):
 {"message":"your spoken response","actions":[]}`
 }
 
-function buildCheckinSystem({ nameStr, goalsCtx, reflectionCtx }) {
+function buildCheckinSystem({ nameStr, goalsCtx, programsCtx = '  (No programs set up yet — they\'re optional)', reflectionCtx }) {
   return `\
 ${LC_VOICE.replaceAll('${nameStr}', nameStr)}
 
@@ -290,13 +306,19 @@ USER CONTEXT:
 Active goals this month:
 ${goalsCtx}
 
+Active programs (optional organizing dimension — tag entries to one only if the user mentions it):
+${programsCtx}
+
 ${reflectionCtx}
+
+PROGRAMS GUIDANCE:
+Programs are optional. If the user doesn't mention a program, do NOT ask about one or try to tag entries to one. When they do reference a program by name or fragment ("for the May cohort", "in the leadership intensive"), include programRef on the relevant action so the server can tag it correctly. If they describe starting a new program, offer to create it via create_program.
 
 WHAT TO LISTEN FOR:
 
-1. NEW GOAL: They mention something they want to take on — a program to design, a cohort outcome to push for, a craft skill to develop. Reflect it back, ask one shaping question (success criteria, audience, why-now), and offer to make it a goal. On yes → create_goal.
+1. NEW GOAL: They mention something they want to take on — a program to design, a cohort outcome to push for, a craft skill to develop. Reflect it back, ask one shaping question (success criteria, audience, why-now), and offer to make it a goal. On yes → create_goal (with programRef if a program is in scope).
 
-2. WIN: They describe something that went well. Often it's a learner's win they witnessed; sometimes it's their own. Name whose win it really is in your acknowledgement. Confirm the framing, then log it. On yes → log_win with the title centered on the actual protagonist. If you can tell which Kirkpatrick level the signal is at (L1 reaction, L2 demonstrated learning, L3 on-the-job behavior, L4 business outcome), you may quietly mention it — but only if it adds clarity.
+2. WIN: They describe something that went well. Often it's a learner's win they witnessed; sometimes it's their own. Name whose win it really is in your acknowledgement. Confirm the framing, then log it. On yes → log_win with the title centered on the actual protagonist (and programRef if relevant). If you can tell which Kirkpatrick level the signal is at (L1 reaction, L2 demonstrated learning, L3 on-the-job behavior, L4 business outcome), you may quietly mention it — but only if it adds clarity.
 
 3. PROGRESS: They describe movement on an existing goal — a milestone hit, a percentage shift. Confirm and update_goal.
 
@@ -304,7 +326,9 @@ WHAT TO LISTEN FOR:
 
 5. REMOVAL: They want to delete or drop a goal. Confirm the exact goal, then delete_goal.
 
-6. REFLECTION: They sound reflective, or it's been a few weeks. Offer to navigate to Reflections (navigate action).
+6. NEW PROGRAM: They mention starting a new cohort, workshop series, or intensive. Confirm the name (and dates if mentioned), then create_program.
+
+7. REFLECTION: They sound reflective, or it's been a few weeks. Offer to navigate to Reflections (navigate action).
 
 ALWAYS confirm before taking an action ("Want me to log that as a win?", "Should I update the workshop goal to 60%?").
 

@@ -2,7 +2,7 @@ const { Router } = require('express')
 const { supabase } = require('../config')
 const { verifyToken } = require('../middleware/auth')
 const { ollamaChatStream, parseChatResponse } = require('../lib/ollama')
-const { dbGoalToShape } = require('../lib/shapes')
+const { dbGoalToShape, dbProgramToShape } = require('../lib/shapes')
 const { resolveActions, messageClaimsAction, detectUserIntent, validateIntentMatch, synthesizeRenameAction } = require('../lib/actionResolver')
 const { LC_RESPONSE_SCHEMA, buildPlannerSystem, buildCheckinSystem } = require('../prompts/lc')
 
@@ -14,24 +14,35 @@ router.post('/chat', verifyToken, async (req, res) => {
   try {
     const { messages = [], firstName = '', plannerMode = false } = req.body || {}
 
-    // Fetch active goals + last reflection for full context
-    const [goalsResult, reflectionsResult] = await Promise.all([
+    // Fetch active goals + active/completed programs + last reflection for context
+    const [goalsResult, programsResult, reflectionsResult] = await Promise.all([
       supabase.from('goals').select('*').eq('user_id', req.userId)
         .eq('status', 'active').order('created_at', { ascending: true }),
+      supabase.from('programs').select('*').eq('user_id', req.userId)
+        .in('status', ['active', 'completed']).order('updated_at', { ascending: false }),
       supabase.from('reflections').select('month,evaluation,suggestions,created_at')
         .eq('user_id', req.userId).order('created_at', { ascending: false }).limit(1),
     ])
 
     const goals = (goalsResult.data || []).map(dbGoalToShape)
+    const programs = (programsResult.data || []).map(dbProgramToShape)
     const lastReflection = reflectionsResult.data?.[0] || null
 
     const nameStr  = firstName || 'there'
     const goalsCtx = goals.length
       ? goals.map(g =>
           `  - ID: ${g.id}\n    Title: ${g.title}\n    Progress: ${g.progress}%` +
-          (g.description ? `\n    Description: ${g.description}` : '')
+          (g.description ? `\n    Description: ${g.description}` : '') +
+          (g.programId ? `\n    Program: ${programs.find(p => p.id === g.programId)?.name || '(unknown)'}` : '')
         ).join('\n')
       : '  (No active goals set yet this month)'
+
+    const programsCtx = programs.length
+      ? programs.map(p =>
+          `  - ID: ${p.id}\n    Name: ${p.name}\n    Status: ${p.status}` +
+          (p.description ? `\n    Description: ${p.description}` : '')
+        ).join('\n')
+      : '  (No programs set up yet — they\'re optional)'
 
     const reflectionCtx = lastReflection
       ? `Last reflection (${lastReflection.month}): ${lastReflection.evaluation || ''}${
@@ -42,8 +53,8 @@ router.post('/chat', verifyToken, async (req, res) => {
       : '  (No reflections yet)'
 
     const system = plannerMode
-      ? buildPlannerSystem({ nameStr, goalsCtx, reflectionCtx })
-      : buildCheckinSystem({ nameStr, goalsCtx, reflectionCtx })
+      ? buildPlannerSystem({ nameStr, goalsCtx, programsCtx, reflectionCtx })
+      : buildCheckinSystem({ nameStr, goalsCtx, programsCtx, reflectionCtx })
 
     const chatMessages = messages.length === 0
       ? [{ role: 'user', content: 'Please start this new chat with a short friendly greeting and ask what I would like help with.' }]
@@ -74,9 +85,10 @@ router.post('/chat', verifyToken, async (req, res) => {
     const parsed = parseChatResponse(fullContent, { actions: [] })
     const rawActions = Array.isArray(parsed.actions) ? parsed.actions : []
 
-    // Resolve every action against ground truth: fuzzy-match goalRef → goalId,
-    // snap status synonyms, drop blank fields. Anything unrepairable is dropped.
-    const { actions, dropped } = resolveActions(rawActions, goals)
+    // Resolve every action against ground truth: fuzzy-match goalRef → goalId
+    // and programRef → programId, snap status synonyms, drop blank fields.
+    // Anything unrepairable is dropped.
+    const { actions, dropped } = resolveActions(rawActions, goals, programs)
 
     // ── Failure detection ────────────────────────────────────────────────────
     // Three layers, in order of specificity:
