@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useApi } from '../composables/useApi.js'
+import { useFocusTrap } from '../composables/useFocusTrap.js'
 import {
   Sparkles, Eye, Headphones, BookOpen, Wrench,
   Heart, Zap, Layers, ArrowRight, ChevronLeft, Check,
@@ -37,8 +38,13 @@ const personalities = [
   { value: 'neutral', label: 'Balanced',            desc: 'Friendly but professional — encouraging and practical.',       icon: Layers, color: '#0d5f6b', bg: '#e0f5f7' },
 ]
 
+// ── Focus trap ────────────────────────────────────────────────────────────────
+const modalRef = ref(null)
+useFocusTrap(modalRef)   // no onEscape — onboarding cannot be dismissed
+
 // ── Validation ────────────────────────────────────────────────────────────────
-const step1Valid = computed(() => form.value.firstName.trim().length > 0)
+// Reject names that are blank or only whitespace
+const step1Valid = computed(() => form.value.firstName.trim().length >= 1 && form.value.firstName.trim().length <= 60)
 const step2Valid = computed(() => form.value.learningStyle !== '')
 const step3Valid = computed(() => form.value.aiPersonality !== '')
 
@@ -69,11 +75,12 @@ async function save() {
 
 <template>
   <!-- Backdrop -->
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-    <div class="absolute inset-0 bg-slate-900/65 backdrop-blur-md" />
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+    <div class="absolute inset-0 bg-slate-900/65 backdrop-blur-md" aria-hidden="true" />
 
     <!-- Modal -->
     <div
+      ref="modalRef"
       class="relative z-10 w-full max-w-md flex flex-col rounded-3xl overflow-hidden animate-scale-in"
       style="box-shadow: var(--shadow-modal)"
     >
@@ -104,7 +111,7 @@ async function save() {
           <!-- Step content label -->
           <div>
             <p class="text-xs font-bold text-teal-300/70 uppercase tracking-widest mb-1">Step {{ step }} of 3</p>
-            <h2 class="text-xl font-extrabold text-white leading-tight">
+            <h2 id="onboarding-title" class="text-xl font-extrabold text-white leading-tight">
               <span v-if="step === 1">Welcome! Let's set up<br>your profile.</span>
               <span v-else-if="step === 2">How do you prefer<br>to learn?</span>
               <span v-else>How should the AI<br>talk to you?</span>

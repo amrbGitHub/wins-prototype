@@ -1,17 +1,20 @@
 /**
  * useTTS — neural TTS via Kokoro 82M (ONNX, browser-native)
- * Automatically falls back to Web Speech API if Kokoro fails to load.
+ * Falls back to Web Speech API if Kokoro fails or times out loading.
  *
  * Best Kokoro voices (A-grade): af_heart, af_bella
  */
 
 import { ref } from 'vue'
 
+const KOKORO_LOAD_TIMEOUT_MS = 30_000   // give up loading the voice model after this
+
 // ── Module-level singletons ───────────────────────────────────────────────────
 let   _tts         = null
 let   _loadingProm = null
 let   _audioCtx    = null
 let   _currentSrc  = null
+let   _resolveSpeak = null   // pending resolve fn for the Kokoro speak promise; called by stop()
 
 const _isSpeaking   = ref(false)
 const _isLoading    = ref(false)
@@ -37,7 +40,7 @@ function getAudioCtx() {
   return _audioCtx
 }
 
-// ── Kokoro model loading ──────────────────────────────────────────────────────
+// ── Kokoro model loading (with timeout) ───────────────────────────────────────
 async function loadKokoro() {
   if (_tts) return _tts
   if (_loadingProm) return _loadingProm
@@ -47,7 +50,8 @@ async function loadKokoro() {
     _loadProgress.value = 0
     try {
       const { KokoroTTS } = await import('kokoro-js')
-      _tts = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0', {
+      // Race the load against a timeout so coffee-shop wifi doesn't hang us forever.
+      const loadPromise = KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0', {
         dtype: 'q8',
         progress_callback: ({ status, progress }) => {
           if (status === 'progress' && typeof progress === 'number') {
@@ -56,6 +60,10 @@ async function loadKokoro() {
           if (status === 'done') _loadProgress.value = 100
         },
       })
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Kokoro load timed out')), KOKORO_LOAD_TIMEOUT_MS)
+      )
+      _tts = await Promise.race([loadPromise, timeoutPromise])
       return _tts
     } finally {
       _isLoading.value = false
@@ -74,7 +82,6 @@ function speakFallback(text) {
     const utt   = new SpeechSynthesisUtterance(text)
     utt.rate    = 1.05
     utt.pitch   = 1.0
-    // Pick best available voice
     const voices = window.speechSynthesis.getVoices()
     const preferred = ['Microsoft Ava Online', 'Microsoft Jenny Online', 'Google US English', 'Samantha']
     for (const name of preferred) {
@@ -82,23 +89,27 @@ function speakFallback(text) {
       if (v) { utt.voice = v; break }
     }
     _isSpeaking.value  = true
-    utt.onend  = () => { _isSpeaking.value = false; resolve() }
-    utt.onerror = () => { _isSpeaking.value = false; resolve() }
+    _resolveSpeak = () => { _resolveSpeak = null; _isSpeaking.value = false; resolve() }
+    utt.onend  = () => _resolveSpeak?.()
+    utt.onerror = () => _resolveSpeak?.()
     window.speechSynthesis.speak(utt)
   })
 }
 
+// Computed once at module load; wrapping as a ref keeps the API consistent so
+// useLcChat can destructure it alongside the other reactive state.
+const _isSupported = ref(typeof window !== 'undefined' &&
+  ('AudioContext' in window || 'webkitAudioContext' in window))
+
 // ── Public composable ─────────────────────────────────────────────────────────
 export function useTTS() {
-  const isSupported = typeof window !== 'undefined' &&
-    ('AudioContext' in window || 'webkitAudioContext' in window)
+  const isSupported = _isSupported
 
   async function speak(text) {
-    if (!isSupported) return
+    if (!isSupported.value) return
     const clean = cleanForSpeech(text)
     if (!clean) return
 
-    // Try Kokoro; fall back to Web Speech API on any error
     try {
       const tts   = await loadKokoro()
       const audio = await tts.generate(clean, { voice: 'af_heart' })
@@ -114,11 +125,15 @@ export function useTTS() {
         src.connect(ctx.destination)
 
         _isSpeaking.value = true
-        src.onended = () => {
+        // Track the resolver so stop() can fire it without waiting for onended.
+        _resolveSpeak = () => {
+          if (!_resolveSpeak) return
+          _resolveSpeak = null
           _isSpeaking.value = false
           _currentSrc       = null
           resolve()
         }
+        src.onended = () => _resolveSpeak?.()
         src.start()
       })
     } catch (err) {
@@ -128,12 +143,16 @@ export function useTTS() {
   }
 
   function stop() {
-    // Stop Kokoro audio
+    // Cancel any pending speak() promise so callers waiting on it don't hang.
+    if (_resolveSpeak) {
+      const fn = _resolveSpeak
+      _resolveSpeak = null
+      try { fn() } catch { /* ignore */ }
+    }
     if (_currentSrc) {
       try { _currentSrc.stop() } catch { /* already stopped */ }
       _currentSrc = null
     }
-    // Stop fallback Web Speech
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
     _isSpeaking.value = false
   }

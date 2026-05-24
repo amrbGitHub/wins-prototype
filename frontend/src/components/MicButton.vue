@@ -12,6 +12,8 @@ defineEmits(['click'])
     @click="$emit('click')"
     :disabled="!supported"
     :title="!supported ? 'Voice input requires Chrome or Edge' : listening ? 'Stop recording' : 'Click to dictate'"
+    :aria-label="!supported ? 'Voice input not supported in this browser' : listening ? 'Stop recording' : 'Start voice dictation'"
+    :aria-pressed="listening"
     class="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 hover:scale-105 active:scale-95"
     :class="[
       listening
@@ -22,7 +24,7 @@ defineEmits(['click'])
     ]"
   >
     <span v-if="listening" class="absolute inset-0 rounded-xl bg-[#0d5f6b] animate-ping opacity-30"></span>
-    <svg class="relative h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+    <svg class="relative h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
       <path d="M19 10v2a7 7 0 0 1-14 0v-2H3v2a9 9 0 0 0 8 8.94V23h2v-2.06A9 9 0 0 0 21 12v-2h-2z"/>
     </svg>

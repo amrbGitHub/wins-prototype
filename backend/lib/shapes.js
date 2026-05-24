@@ -9,7 +9,7 @@ function dbGoalToShape(row) {
     title:           row.title,
     description:     row.description,
     successCriteria: row.success_criteria,
-    status:          row.status,
+    status:          normaliseGoalStatus(row.status),
     targetDate:      row.target_date   || null,
     steps:           Array.isArray(row.steps) ? row.steps : [],
     progress:        row.progress      ?? 0,
@@ -35,8 +35,32 @@ function dbRowToEntry(row) {
 function toMonthLabel(monthStr) {
   const [y, m] = (monthStr || '').split('-')
   return y && m
-    ? new Date(parseInt(y), parseInt(m) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    ? new Date(parseInt(y, 10), parseInt(m, 10) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
     : 'this month'
+}
+
+// Canonical goal status values used across DB + UI + LC actions.
+const GOAL_STATUSES        = ['active', 'completed', 'shelved']
+const GOAL_COMPLETE_STATUS = 'completed'
+
+// Returns one of GOAL_STATUSES, or null if the input is blank / unset.
+// Throws nothing — caller decides whether null means "skip" (PATCH) or "reject".
+// Maps the synonyms LLMs naturally produce ('done', 'archived', etc.) to canonical values.
+const STATUS_SYNONYMS = {
+  achieved:  'completed',   // legacy DB rows
+  done:      'completed',
+  complete:  'completed',
+  finished:  'completed',
+  archived:  'shelved',
+  archive:   'shelved',
+  shelve:    'shelved',
+  paused:    'shelved',
+}
+function normaliseGoalStatus(status) {
+  if (status === undefined || status === null) return null
+  const s = String(status).trim().toLowerCase()
+  if (s === '') return null
+  return STATUS_SYNONYMS[s] || s
 }
 
 // Replace all goals for a given user+month atomically.
@@ -78,4 +102,7 @@ async function replaceGoals(userId, month, goals) {
   return data.map(dbGoalToShape)
 }
 
-module.exports = { dbGoalToShape, dbRowToEntry, toMonthLabel, replaceGoals }
+module.exports = {
+  dbGoalToShape, dbRowToEntry, toMonthLabel, replaceGoals,
+  GOAL_STATUSES, GOAL_COMPLETE_STATUS, normaliseGoalStatus,
+}

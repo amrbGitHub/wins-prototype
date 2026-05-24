@@ -1,7 +1,9 @@
 const { Router } = require('express')
 const { ollamaChat, getContent, parseJSON } = require('../lib/ollama')
+const { verifyToken } = require('../middleware/auth')
 
 const router = Router()
+router.use(verifyToken)   // every AI route here requires auth
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 

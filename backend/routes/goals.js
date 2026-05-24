@@ -2,7 +2,7 @@ const { Router } = require('express')
 const { supabase } = require('../config')
 const { verifyToken } = require('../middleware/auth')
 const { ollamaChat, getContent, parseJSON } = require('../lib/ollama')
-const { dbGoalToShape } = require('../lib/shapes')
+const { dbGoalToShape, GOAL_STATUSES, normaliseGoalStatus } = require('../lib/shapes')
 
 const router = Router()
 
@@ -29,6 +29,8 @@ router.post('/', verifyToken, async (req, res) => {
     const { title, description, successCriteria, targetDate, month: bodyMonth } = req.body || {}
     if (!title?.trim()) return res.status(400).json({ error: 'title is required' })
 
+    // Default to UTC month if client didn't supply one. The frontend always supplies
+    // a local-tz month for new goals so this is just a safety fallback.
     const month = bodyMonth || new Date().toISOString().slice(0, 7)
 
     const { data, error } = await supabase
@@ -100,13 +102,89 @@ router.patch('/bulk-status', verifyToken, async (req, res) => {
   try {
     const { goalIds, status } = req.body || {}
     if (!Array.isArray(goalIds) || !status) return res.status(400).json({ error: 'goalIds and status required' })
+    const s = normaliseGoalStatus(status)
+    if (s === null || !GOAL_STATUSES.includes(s)) {
+      return res.status(400).json({ error: `status must be one of ${GOAL_STATUSES.join(', ')}` })
+    }
     const { error } = await supabase
       .from('goals')
-      .update({ status })
+      .update({ status: s })
       .eq('user_id', req.userId)
       .in('id', goalIds)
     if (error) throw error
     res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/goals/rollover — bundle transfer + shelve in a single best-effort atomic op
+// Static route must come before /:id routes.
+// Sequenced: shelve first (cheap), then transfer (expensive). If transfer fails,
+// we revert the shelve so the user isn't left in a half-applied state.
+router.post('/rollover', verifyToken, async (req, res) => {
+  try {
+    const { fromMonth, toMonth, transferIds = [], shelfIds = [] } = req.body || {}
+    if (!fromMonth || !toMonth) return res.status(400).json({ error: 'fromMonth, toMonth required' })
+    if (!Array.isArray(transferIds) || !Array.isArray(shelfIds)) {
+      return res.status(400).json({ error: 'transferIds and shelfIds must be arrays' })
+    }
+
+    // 1. Shelve (capture prior status for revert)
+    let shelvedRevert = null
+    if (shelfIds.length) {
+      const { data: prev, error: priorErr } = await supabase
+        .from('goals').select('id, status')
+        .eq('user_id', req.userId).in('id', shelfIds)
+      if (priorErr) throw priorErr
+      shelvedRevert = prev || []
+
+      const { error: updateErr } = await supabase
+        .from('goals').update({ status: 'shelved' })
+        .eq('user_id', req.userId).in('id', shelfIds)
+      if (updateErr) throw updateErr
+    }
+
+    // 2. Transfer (with revert on failure)
+    let transferred = []
+    if (transferIds.length) {
+      const { data: source, error: fetchErr } = await supabase
+        .from('goals').select('*')
+        .eq('user_id', req.userId).eq('month', fromMonth).in('id', transferIds)
+      if (fetchErr) {
+        if (shelvedRevert) await Promise.all(shelvedRevert.map(g =>
+          supabase.from('goals').update({ status: g.status }).eq('id', g.id).eq('user_id', req.userId)
+        ))
+        throw fetchErr
+      }
+
+      if (source?.length) {
+        const { data: inserted, error: insertErr } = await supabase
+          .from('goals')
+          .insert(source.map(g => ({
+            user_id:          req.userId,
+            month:            toMonth,
+            title:            g.title,
+            description:      g.description,
+            success_criteria: g.success_criteria,
+            status:           'active',
+            target_date:      g.target_date || null,
+            steps:            g.steps       || [],
+            progress:         0,
+          })))
+          .select()
+        if (insertErr) {
+          // Roll back the shelve
+          if (shelvedRevert) await Promise.all(shelvedRevert.map(g =>
+            supabase.from('goals').update({ status: g.status }).eq('id', g.id).eq('user_id', req.userId)
+          ))
+          throw insertErr
+        }
+        transferred = (inserted || []).map(dbGoalToShape)
+      }
+    }
+
+    res.json({ ok: true, transferred, shelvedCount: shelfIds.length })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -127,16 +205,27 @@ router.delete('/:id', verifyToken, async (req, res) => {
   }
 })
 
-// PATCH /api/goals/:id — update status, progress, targetDate, or steps
+// PATCH /api/goals/:id — update title, description, status, progress, targetDate, or steps
 router.patch('/:id', verifyToken, async (req, res) => {
   try {
-    const { status, progress, targetDate, steps } = req.body || {}
+    const { title, description, status, progress, targetDate, steps } = req.body || {}
 
     const patch = {}
-    if (status     !== undefined) patch.status      = status
-    if (progress   !== undefined) patch.progress     = Math.max(0, Math.min(100, Number(progress)))
-    if (targetDate !== undefined) patch.target_date  = targetDate || null
-    if (steps      !== undefined) patch.steps        = steps
+    if (title       !== undefined) patch.title        = (title || '').trim() || null
+    if (description !== undefined) patch.description  = (description || '').trim() || null
+    if (status      !== undefined) {
+      const s = normaliseGoalStatus(status)
+      if (s === null) {
+        // Blank/empty — caller (likely the LLM) padded the field; treat as not provided.
+      } else if (!GOAL_STATUSES.includes(s)) {
+        return res.status(400).json({ error: `status must be one of ${GOAL_STATUSES.join(', ')}` })
+      } else {
+        patch.status = s
+      }
+    }
+    if (progress    !== undefined) patch.progress     = Math.max(0, Math.min(100, Number(progress)))
+    if (targetDate  !== undefined) patch.target_date  = targetDate || null
+    if (steps       !== undefined) patch.steps        = steps
 
     if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to update' })
 

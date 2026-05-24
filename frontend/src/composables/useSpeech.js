@@ -11,8 +11,18 @@ export function useSpeech() {
 
   let recognition = null
 
+  function _abortPrevious() {
+    if (recognition) {
+      try { recognition.abort() } catch { /* ignore */ }
+      recognition = null
+    }
+  }
+
   function startListening(onResult) {
-    if (!isSupported || isListening.value) return
+    if (!isSupported) return
+    // Abort any prior recognition object before creating a new one — otherwise
+    // the previous mic stream lingers until GC and the indicator stays on.
+    _abortPrevious()
 
     recognition = new SpeechRecognition()
     recognition.continuous = true
@@ -41,25 +51,30 @@ export function useSpeech() {
 
     recognition.onend = () => {
       isListening.value = false
+      recognition = null
     }
 
-    recognition.start()
-    isListening.value = true
+    try {
+      recognition.start()
+      isListening.value = true
+    } catch (e) {
+      // InvalidStateError on rapid re-entry. Bail cleanly.
+      console.warn('[useSpeech] start() threw:', e)
+      isListening.value = false
+      recognition = null
+    }
   }
 
   function stopListening() {
-    if (recognition && isListening.value) {
-      recognition.stop()
+    if (recognition) {
+      try { recognition.stop() } catch { /* ignore */ }
     }
     isListening.value = false
   }
 
   function toggleListening(onResult) {
-    if (isListening.value) {
-      stopListening()
-    } else {
-      startListening(onResult)
-    }
+    if (isListening.value) stopListening()
+    else                   startListening(onResult)
   }
 
   return { isSupported, isListening, startListening, stopListening, toggleListening }

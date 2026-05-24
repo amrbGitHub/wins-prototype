@@ -2,14 +2,17 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useAuth } from './composables/useAuth.js'
 import { useApi }  from './composables/useApi.js'
+import { thisMonthLocal } from './lib/dates.js'
 import {
   Trophy, BookOpen, CalendarDays, Target, Brain,
   User, LogOut, Menu, X, Wifi, WifiOff, ChevronRight,
-  Bell, Sparkles,
+  Bell, Sparkles, Home as HomeIcon,
 } from 'lucide-vue-next'
+import HomeView        from './components/Home.vue'
+import Elsie           from './components/Elsie.vue'
+import ElsiePage       from './components/ElsiePage.vue'
 import Celebrate       from './components/Celebrate.vue'
 import Journal         from './components/Journal.vue'
-import Planner         from './components/Planner.vue'
 import MyGoals         from './components/MyGoals.vue'
 import Reflections     from './components/Reflections.vue'
 import ReviewModal     from './components/ReviewModal.vue'
@@ -17,31 +20,34 @@ import OnboardingModal from './components/OnboardingModal.vue'
 import UserProfile     from './components/UserProfile.vue'
 import AuthPage        from './components/AuthPage.vue'
 
-const { user, loading, signOut } = useAuth()
+const { user, loading, signOut, onAuthEvent } = useAuth()
 const { apiFetch, apiFetchPublic } = useApi()
 
-const currentView = ref('celebrate')
+const currentView = ref('home')
 const sidebarOpen = ref(false)
+const elsieOpen   = ref(false)   // Elsie is a persistent overlay, not a tab
 
 const tabs = [
-  { id: 'celebrate',   label: 'Celebrate',   icon: Trophy,       color: 'amber'   },
-  { id: 'journal',     label: 'Journal',      icon: BookOpen,     color: 'violet'  },
-  { id: 'planner',     label: 'Planner',      icon: CalendarDays, color: 'teal'    },
+  { id: 'home',        label: 'Home',         icon: HomeIcon,     color: 'teal'    },
   { id: 'goals',       label: 'My Goals',     icon: Target,       color: 'emerald' },
+  { id: 'journal',     label: 'Journal',      icon: BookOpen,     color: 'violet'  },
+  { id: 'celebrate',   label: 'Celebrate',    icon: Trophy,       color: 'amber'   },
   { id: 'reflections', label: 'Reflections',  icon: Brain,        color: 'rose'    },
 ]
 
 const tabColorMap = {
-  amber:   { active: 'text-amber-600 bg-amber-50/80 border border-amber-200/60',   dot: 'bg-amber-400',   icon: 'text-amber-500'   },
-  violet:  { active: 'text-violet-600 bg-violet-50/80 border border-violet-200/60', dot: 'bg-violet-400',  icon: 'text-violet-500'  },
-  teal:    { active: 'text-teal-700 bg-teal-50/80 border border-teal-200/60',       dot: 'bg-teal-400',    icon: 'text-teal-600'    },
+  amber:   { active: 'text-amber-600 bg-amber-50/80 border border-amber-200/60',      dot: 'bg-amber-400',   icon: 'text-amber-500'   },
+  violet:  { active: 'text-violet-600 bg-violet-50/80 border border-violet-200/60',   dot: 'bg-violet-400',  icon: 'text-violet-500'  },
+  teal:    { active: 'text-teal-700 bg-teal-50/80 border border-teal-200/60',          dot: 'bg-teal-400',    icon: 'text-teal-600'    },
   emerald: { active: 'text-emerald-700 bg-emerald-50/80 border border-emerald-200/60', dot: 'bg-emerald-400', icon: 'text-emerald-600' },
-  rose:    { active: 'text-rose-600 bg-rose-50/80 border border-rose-200/60',       dot: 'bg-rose-400',    icon: 'text-rose-500'    },
+  rose:    { active: 'text-rose-600 bg-rose-50/80 border border-rose-200/60',          dot: 'bg-rose-400',    icon: 'text-rose-500'    },
 }
 
 const currentTabLabel = computed(() =>
   currentView.value === 'profile'
     ? 'Profile'
+    : currentView.value === 'elsie'
+    ? 'LC'
     : (tabs.find(t => t.id === currentView.value)?.label ?? 'Wins')
 )
 
@@ -50,6 +56,8 @@ const activeTabColor = computed(() =>
 )
 
 function navigate(id) {
+  // 'elsie' navigates to the full-page view (sidebar click or link within app)
+  // The floating button separately sets elsieOpen for the panel overlay
   currentView.value = id
   sidebarOpen.value = false
 }
@@ -73,12 +81,25 @@ async function loadProfile() {
 function onOnboardingDone(newProfile) {
   profile.value        = newProfile
   showOnboarding.value = false
-  currentView.value    = 'planner'   // guide new users straight to goal-setting
+  currentView.value    = 'elsie'   // guide new users straight to Elsie for goal-setting
 }
 
 function onProfileUpdated(newProfile) {
   profile.value = newProfile
 }
+
+// React to multi-tab auth events: a sign-out in another tab should drop our
+// cached profile so we don't show stale data. Token refresh is a noop.
+const _unsubAuth = onAuthEvent((event) => {
+  if (event === 'SIGNED_OUT') {
+    profile.value        = null
+    showOnboarding.value = false
+    profileLoaded.value  = false
+    elsieOpen.value      = false
+    currentView.value    = 'home'
+  }
+})
+onUnmounted(() => { _unsubAuth?.() })
 
 // ── LLM health indicator ──────────────────────────────────────────────────────
 const llmStatus = ref('unknown')
@@ -101,7 +122,7 @@ const reviewMonth      = ref('')
 
 async function checkReviewDue() {
   const forceTest    = new URLSearchParams(window.location.search).has('testReview')
-  const currentMonth = new Date().toISOString().slice(0, 7)
+  const currentMonth = thisMonthLocal()
 
   if (!forceTest) {
     const snoozed = localStorage.getItem(`wins-review-snoozed-${currentMonth}`)
@@ -116,7 +137,8 @@ async function checkReviewDue() {
     if (!goals?.length) return
 
     if (!forceTest) {
-      const oldestCreated = Math.min(...goals.map(g => g.createdAt))
+      // Avoid Math.min(...arr) — call-stack arg-spread limit is ~10k in older browsers.
+      const oldestCreated = goals.reduce((m, g) => Math.min(m, g.createdAt), Infinity)
       const daysSinceSet  = (Date.now() - oldestCreated) / (1000 * 60 * 60 * 24)
       if (daysSinceSet < 7) return
     }
@@ -134,6 +156,17 @@ const rolloverFromMonth  = ref('')
 const rolloverToMonth    = ref('')
 const rolloverSelections = ref({})
 const rolloverSaving     = ref(false)
+
+// ── Global Esc handler for dismissible overlays ───────────────────────────────
+// Self-contained modals (OnboardingModal, ReviewModal) handle their own.
+function onEscKey(e) {
+  if (e.key !== 'Escape') return
+  if (elsieOpen.value)         { elsieOpen.value = false;          e.preventDefault(); return }
+  if (showRolloverModal.value) { showRolloverModal.value = false;  e.preventDefault(); return }
+  if (sidebarOpen.value)       { sidebarOpen.value = false;        e.preventDefault(); return }
+}
+document.addEventListener('keydown', onEscKey)
+onUnmounted(() => document.removeEventListener('keydown', onEscKey))
 
 async function checkMonthRollover() {
   const now       = new Date()
@@ -159,19 +192,19 @@ async function checkMonthRollover() {
 async function applyRollover() {
   rolloverSaving.value = true
   try {
-    const toTransfer = rolloverGoals.value.filter(g => rolloverSelections.value[g.id] === 'transfer').map(g => g.id)
-    const toShelf    = rolloverGoals.value.filter(g => rolloverSelections.value[g.id] === 'shelf').map(g => g.id)
+    const transferIds = rolloverGoals.value.filter(g => rolloverSelections.value[g.id] === 'transfer').map(g => g.id)
+    const shelfIds    = rolloverGoals.value.filter(g => rolloverSelections.value[g.id] === 'shelf').map(g => g.id)
 
-    await Promise.all([
-      toTransfer.length ? apiFetch('/api/goals/transfer', {
-        method: 'POST',
-        body: JSON.stringify({ fromMonth: rolloverFromMonth.value, toMonth: rolloverToMonth.value, goalIds: toTransfer }),
-      }) : null,
-      toShelf.length ? apiFetch('/api/goals/bulk-status', {
-        method: 'PATCH',
-        body: JSON.stringify({ goalIds: toShelf, status: 'shelved' }),
-      }) : null,
-    ].filter(Boolean))
+    // Single best-effort atomic call. Server reverts the shelve if transfer fails.
+    await apiFetch('/api/goals/rollover', {
+      method: 'POST',
+      body: JSON.stringify({
+        fromMonth: rolloverFromMonth.value,
+        toMonth:   rolloverToMonth.value,
+        transferIds,
+        shelfIds,
+      }),
+    })
 
     localStorage.setItem(`wins-rollover-checked-${rolloverFromMonth.value}`, '1')
     showRolloverModal.value = false
@@ -299,9 +332,12 @@ onUnmounted(() => clearInterval(_statusTimer))
       <div class="absolute inset-0 pointer-events-none"
            style="background:linear-gradient(160deg,rgba(13,95,107,0.18) 0%,transparent 60%)"></div>
 
-      <!-- Logo / brand -->
+      <!-- Logo / brand — clicking navigates home -->
       <div class="relative px-5 pt-6 pb-5 shrink-0">
-        <div class="flex items-center gap-3">
+        <button
+          @click="navigate('home')"
+          class="flex items-center gap-3 w-full text-left transition-opacity hover:opacity-80 focus:outline-none"
+        >
           <div class="relative shrink-0">
             <div class="h-10 w-10 rounded-2xl flex items-center justify-center shadow-lg"
                  style="background:linear-gradient(135deg,#0d5f6b,#2dd4bf)">
@@ -323,14 +359,47 @@ onUnmounted(() => clearInterval(_statusTimer))
             <p class="font-bold text-white text-sm leading-tight">Celebrating Wins</p>
             <p class="text-xs leading-tight mt-0.5" style="color:var(--sidebar-text)">Your L&D companion</p>
           </div>
-        </div>
+        </button>
       </div>
 
       <!-- Divider -->
       <div class="mx-5 h-px shrink-0" style="background:rgba(255,255,255,0.07)"></div>
 
       <!-- Nav -->
-      <nav class="relative flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+      <nav class="relative flex-1 px-3 py-4 overflow-y-auto flex flex-col gap-0.5">
+
+        <!-- Elsie — prominent AI button at the top -->
+        <button
+          @click="navigate('elsie')"
+          class="flex items-center gap-3 w-full rounded-xl px-3 py-2.5 mb-2 transition-all duration-200 group"
+          :class="currentView === 'elsie'
+            ? 'text-teal-100'
+            : 'text-white/60 hover:text-white/90'"
+          :style="currentView === 'elsie'
+            ? 'background:linear-gradient(135deg,rgba(13,95,107,0.55),rgba(14,128,149,0.45));box-shadow:inset 2px 0 0 #2dd4bf'
+            : 'background:rgba(255,255,255,0.04)'"
+        >
+          <div class="relative shrink-0">
+            <div class="h-8 w-8 rounded-xl flex items-center justify-center transition-all duration-200"
+                 :style="currentView === 'elsie' ? 'background:rgba(45,212,191,0.25)' : 'background:rgba(255,255,255,0.08)'">
+              <Sparkles class="h-4 w-4 transition-colors" :class="currentView === 'elsie' ? 'text-teal-300' : ''" />
+            </div>
+            <!-- Online dot -->
+            <span class="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-[var(--sidebar-bg)]"
+                  :class="currentView === 'elsie' ? 'bg-emerald-400' : 'bg-emerald-500/60'"></span>
+          </div>
+          <div class="flex-1 min-w-0 text-left">
+            <p class="text-sm font-bold leading-tight">LC</p>
+            <p class="text-[10px] leading-tight opacity-60">Learning Companion</p>
+          </div>
+          <span class="text-[9px] font-bold rounded-full px-1.5 py-0.5 shrink-0"
+                style="background:rgba(45,212,191,0.2);color:#2dd4bf">AI</span>
+        </button>
+
+        <!-- Divider -->
+        <div class="mx-2 mb-2 h-px" style="background:rgba(255,255,255,0.07)"></div>
+
+        <!-- Page tabs -->
         <button
           v-for="tab in tabs"
           :key="tab.id"
@@ -344,7 +413,6 @@ onUnmounted(() => clearInterval(_statusTimer))
             :class="currentView === tab.id ? 'text-teal-300' : ''"
           />
           <span class="flex-1 font-medium">{{ tab.label }}</span>
-          <!-- review due indicator -->
           <span
             v-if="tab.id === 'reflections' && showReviewBanner"
             class="h-2 w-2 rounded-full animate-pulse shrink-0"
@@ -355,6 +423,7 @@ onUnmounted(() => clearInterval(_statusTimer))
             class="h-3.5 w-3.5 shrink-0 text-teal-400 opacity-60"
           />
         </button>
+
       </nav>
 
       <!-- Divider -->
@@ -451,14 +520,19 @@ onUnmounted(() => clearInterval(_statusTimer))
       </Transition>
 
       <!-- Page content -->
-      <Celebrate       v-if="currentView === 'celebrate'" />
-      <Journal         v-else-if="currentView === 'journal'" />
-      <Planner
-        v-else-if="currentView === 'planner'"
+      <HomeView
+        v-if="currentView === 'home'"
         :first-name="profile?.firstName || ''"
-        @go-to-goals="navigate('goals')"
-        @start-review="onStartReview"
+        @navigate="navigate"
       />
+      <ElsiePage
+        v-else-if="currentView === 'elsie'"
+        :first-name="profile?.firstName || ''"
+        @goals-updated="onGoalsUpdated"
+        @navigate="navigate"
+      />
+      <Celebrate       v-else-if="currentView === 'celebrate'" />
+      <Journal         v-else-if="currentView === 'journal'" />
       <MyGoals
         v-else-if="currentView === 'goals'"
         :key="'goals-' + myGoalsKey"
@@ -471,6 +545,63 @@ onUnmounted(() => clearInterval(_statusTimer))
         @updated="onProfileUpdated"
       />
     </div>
+
+    <!-- ── Elsie persistent overlay + floating trigger ─────────────────────── -->
+    <Teleport to="body">
+      <!-- Floating trigger button (hidden when Elsie is open) -->
+      <Transition
+        enter-active-class="transition duration-300 ease-out"
+        enter-from-class="opacity-0 scale-90 translate-y-2"
+        enter-to-class="opacity-100 scale-100 translate-y-0"
+        leave-active-class="transition duration-200 ease-in"
+        leave-from-class="opacity-100 scale-100 translate-y-0"
+        leave-to-class="opacity-0 scale-90 translate-y-2"
+      >
+        <button
+          v-if="!elsieOpen && user && profileLoaded && currentView !== 'elsie'"
+          @click="elsieOpen = true"
+          class="fixed bottom-6 right-6 z-40 flex items-center gap-2.5 rounded-2xl px-4 py-3 text-white font-semibold shadow-2xl transition-all duration-200 hover:scale-105 active:scale-95"
+          style="background:linear-gradient(135deg,#0d5f6b,#0e8095);box-shadow:0 8px 32px rgba(13,95,107,0.42)"
+        >
+          <!-- Subtle pulse ring -->
+          <span class="absolute inset-0 rounded-2xl animate-ping opacity-10"
+                style="background:linear-gradient(135deg,#0d5f6b,#0e8095)"></span>
+          <Sparkles class="h-5 w-5 relative" />
+          <span class="text-sm relative">LC</span>
+        </button>
+      </Transition>
+
+      <!-- Elsie overlay -->
+      <Transition
+        enter-active-class="transition duration-300 ease-out"
+        enter-from-class="opacity-0 scale-95"
+        enter-to-class="opacity-100 scale-100"
+        leave-active-class="transition duration-200 ease-in"
+        leave-from-class="opacity-100 scale-100"
+        leave-to-class="opacity-0 scale-95"
+      >
+        <div
+          v-if="elsieOpen"
+          class="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-8"
+        >
+          <!-- Backdrop -->
+          <div
+            class="absolute inset-0"
+            style="background:rgba(0,0,0,0.5);backdrop-filter:blur(10px)"
+            @click="elsieOpen = false"
+          />
+          <!-- Panel -->
+          <div class="relative z-10 w-full max-w-md shadow-2xl" style="border-radius:28px;overflow:hidden">
+            <Elsie
+              :first-name="profile?.firstName || ''"
+              @close="elsieOpen = false"
+              @goals-updated="onGoalsUpdated"
+              @navigate="(id) => { elsieOpen = false; navigate(id) }"
+            />
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- ── Review modal ────────────────────────────────────────────────────── -->
     <ReviewModal

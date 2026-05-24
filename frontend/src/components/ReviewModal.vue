@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
 import { useApi } from '../composables/useApi.js'
+import { useFocusTrap } from '../composables/useFocusTrap.js'
 import {
   ClipboardList, X, Send, TrendingUp, CheckCircle2, Lightbulb, ChevronRight,
 } from 'lucide-vue-next'
@@ -12,7 +13,7 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'saved', 'goalsUpdated'])
 
-const { apiFetch, apiStreamPublic } = useApi()
+const { apiFetch, apiStream } = useApi()
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const messages    = ref([])
@@ -23,7 +24,10 @@ const done        = ref(false)
 const evaluation  = ref('')
 const suggestions = ref([])
 const messagesEl  = ref(null)
+const modalRef    = ref(null)
 const error       = ref('')
+
+useFocusTrap(modalRef, { onEscape: () => emit('close') })
 
 const monthLabel = (() => {
   const [y, m] = props.month.split('-').map(Number)
@@ -75,7 +79,7 @@ async function streamReviewTurn(body) {
   let msgIdx = -1
 
   try {
-    for await (const event of apiStreamPublic('/api/reflections/chat', {
+    for await (const event of apiStream('/api/reflections/chat', {
       method: 'POST',
       body: JSON.stringify(body),
     })) {
@@ -197,11 +201,14 @@ async function saveReflection() {
 
 <template>
   <!-- Backdrop -->
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4" @click.self="!done && emit('close')">
-    <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-md" @click="!done && emit('close')" />
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4"
+       role="dialog" aria-modal="true" aria-labelledby="review-modal-title"
+       @click.self="!done && emit('close')">
+    <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-md" aria-hidden="true" @click="!done && emit('close')" />
 
     <!-- Modal panel -->
     <div
+      ref="modalRef"
       class="relative z-10 w-full max-w-2xl flex flex-col rounded-3xl overflow-hidden animate-scale-in"
       style="max-height:90vh; box-shadow: var(--shadow-modal)"
     >
@@ -221,7 +228,7 @@ async function saveReflection() {
               <ClipboardList class="h-5 w-5 text-white" />
             </div>
             <div>
-              <h2 class="text-base font-bold text-white">Monthly Progress Review</h2>
+              <h2 id="review-modal-title" class="text-base font-bold text-white">Monthly Progress Review</h2>
               <p class="text-xs text-amber-100/80">{{ monthLabel }} · {{ goals.length }} {{ goals.length === 1 ? 'goal' : 'goals' }}</p>
             </div>
           </div>

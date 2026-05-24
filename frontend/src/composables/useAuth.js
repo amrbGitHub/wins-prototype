@@ -6,6 +6,15 @@ const user    = ref(null)
 const session = ref(null)
 const loading = ref(true)  // true while hydrating from storage on startup
 
+// Multi-tab listeners. Subscribers are notified on SIGNED_OUT / TOKEN_REFRESHED
+// so other parts of the app can re-fetch profile state, drop stale caches, etc.
+const authListeners = new Set()
+function notifyAuthListeners(event, newSession) {
+  for (const fn of authListeners) {
+    try { fn(event, newSession) } catch (e) { console.error('[useAuth] listener error:', e) }
+  }
+}
+
 // Hydrate session from localStorage (Supabase persists it automatically)
 supabase.auth.getSession().then(({ data }) => {
   session.value = data.session
@@ -13,10 +22,13 @@ supabase.auth.getSession().then(({ data }) => {
   loading.value = false
 })
 
-// Keep state in sync with auth events (login, logout, token refresh)
-supabase.auth.onAuthStateChange((_event, newSession) => {
+// Keep state in sync with auth events (login, logout, token refresh).
+// Note: Supabase emits the same events on every tab via storage events, so
+// signing out in tab A propagates to tab B without extra work.
+supabase.auth.onAuthStateChange((event, newSession) => {
   session.value = newSession
   user.value    = newSession?.user ?? null
+  notifyAuthListeners(event, newSession)
 })
 
 async function signUp(email, password) {
@@ -39,6 +51,13 @@ function getAccessToken() {
   return session.value?.access_token ?? null
 }
 
+// Register a listener for auth events. Returns an unsubscribe fn.
+// `event` values: 'INITIAL_SESSION' | 'SIGNED_IN' | 'SIGNED_OUT' | 'TOKEN_REFRESHED' | 'USER_UPDATED'
+function onAuthEvent(fn) {
+  authListeners.add(fn)
+  return () => authListeners.delete(fn)
+}
+
 export function useAuth() {
   return {
     user:    readonly(user),
@@ -48,5 +67,6 @@ export function useAuth() {
     signIn,
     signOut,
     getAccessToken,
+    onAuthEvent,
   }
 }
