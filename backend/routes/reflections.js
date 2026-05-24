@@ -108,7 +108,21 @@ When done:
   }
 })
 
-// ── GET /api/reflections — list all reflections for user, newest first ─────────
+// Map a DB row → API shape. Centralised so programId is consistently exposed.
+function reflectionToShape(r) {
+  return {
+    id:            r.id,
+    month:         r.month,
+    createdAt:     r.created_at,
+    goalsSnapshot: r.goals_snapshot,
+    evaluation:    r.evaluation,
+    suggestions:   r.suggestions,
+    programId:     r.program_id || null,
+  }
+}
+
+// ── GET /api/reflections — list all reflections, newest first ────────────────
+// Optional ?month=YYYY-MM and ?programId=<uuid>|__none__ filters.
 router.get('/', verifyToken, async (req, res) => {
   try {
     let query = supabase
@@ -117,16 +131,11 @@ router.get('/', verifyToken, async (req, res) => {
       .eq('user_id', req.userId)
       .order('created_at', { ascending: false })
     if (req.query.month) query = query.eq('month', req.query.month)
+    if (req.query.programId === '__none__') query = query.is('program_id', null)
+    else if (req.query.programId)           query = query.eq('program_id', req.query.programId)
     const { data, error } = await query
     if (error) throw error
-    res.json(data.map(r => ({
-      id:            r.id,
-      month:         r.month,
-      createdAt:     r.created_at,
-      goalsSnapshot: r.goals_snapshot,
-      evaluation:    r.evaluation,
-      suggestions:   r.suggestions,
-    })))
+    res.json(data.map(reflectionToShape))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -135,7 +144,7 @@ router.get('/', verifyToken, async (req, res) => {
 // ── POST /api/reflections — save a completed reflection ───────────────────────
 router.post('/', verifyToken, async (req, res) => {
   try {
-    const { month, goalsSnapshot, conversation, evaluation, suggestions } = req.body || {}
+    const { month, goalsSnapshot, conversation, evaluation, suggestions, programId } = req.body || {}
     const { data, error } = await supabase
       .from('reflections')
       .insert({
@@ -145,18 +154,12 @@ router.post('/', verifyToken, async (req, res) => {
         conversation,
         evaluation,
         suggestions,
+        program_id:     programId || null,
       })
       .select()
       .single()
     if (error) throw error
-    res.json({
-      id:            data.id,
-      month:         data.month,
-      createdAt:     data.created_at,
-      goalsSnapshot: data.goals_snapshot,
-      evaluation:    data.evaluation,
-      suggestions:   data.suggestions,
-    })
+    res.json(reflectionToShape(data))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
