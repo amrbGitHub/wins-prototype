@@ -360,7 +360,8 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
             title:       action.title,
             description: action.description,
             month:       thisMonthLocal(),
-            programId:   action.programId || null,   // optional, resolved server-side from programRef
+            targetDate:  action.targetDate || null,
+            programId:   action.programId  || null,   // optional, resolved server-side from programRef
           }),
         })
         action._result = { id: created.id, title: created.title }
@@ -375,7 +376,8 @@ export function useLcChat({ getFirstName, getPlannerMode, onGoalsUpdated, onNavi
         const setStr = (k, v) => { if (typeof v === 'string' && v.trim() !== '') patch[k] = v.trim() }
         setStr('title',       action.title)
         setStr('description', action.description)
-        setStr('status',      action.status)   // payload status, e.g. 'completed'
+        setStr('status',      action.status)       // payload status, e.g. 'completed'
+        setStr('targetDate',  action.targetDate)   // YYYY-MM-DD
         if (typeof action.progress === 'number') patch.progress = action.progress
         if (Object.keys(patch).length === 0) throw new Error('Nothing to update')
         const updated = await apiFetch(`/api/goals/${action.goalId}`, {

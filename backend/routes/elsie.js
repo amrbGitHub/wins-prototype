@@ -52,9 +52,15 @@ router.post('/chat', verifyToken, async (req, res) => {
         }`
       : '  (No reflections yet)'
 
+    // Today's date for natural-language date parsing in actions (e.g. "next Friday")
+    const now = new Date()
+    const todayIso = now.toISOString().slice(0, 10)
+    const todayDow = now.toLocaleDateString('en-US', { weekday: 'long' })
+    const todayCtx = `Today is ${todayDow}, ${todayIso}.`
+
     const system = plannerMode
-      ? buildPlannerSystem({ nameStr, goalsCtx, programsCtx, reflectionCtx })
-      : buildCheckinSystem({ nameStr, goalsCtx, programsCtx, reflectionCtx })
+      ? buildPlannerSystem({ nameStr, goalsCtx, programsCtx, reflectionCtx, todayCtx })
+      : buildCheckinSystem({ nameStr, goalsCtx, programsCtx, reflectionCtx, todayCtx })
 
     const chatMessages = messages.length === 0
       ? [{ role: 'user', content: 'Please start this new chat with a short friendly greeting and ask what I would like help with.' }]

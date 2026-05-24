@@ -118,6 +118,15 @@ function resolveProgramTag(a, programs) {
 // ── Per-action resolvers ─────────────────────────────────────────────────────
 // Each returns { ok, action?, reason?, note? }. Caller threads them through.
 
+// Validate a YYYY-MM-DD date string. Returns the string if valid, undefined otherwise.
+// Doesn't constrain to "in the future" — past dates are user error but we don't reject.
+function validateIsoDate(s) {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return undefined
+  const d = new Date(s + 'T00:00:00Z')
+  if (Number.isNaN(d.getTime())) return undefined
+  return s
+}
+
 function resolveCreateGoal(a, programs) {
   const title = String(a.title || '').trim()
   if (!title) return { ok: false, reason: 'create_goal needs a title' }
@@ -128,6 +137,7 @@ function resolveCreateGoal(a, programs) {
       type:        'create_goal',
       title,
       description: String(a.description || '').trim() || undefined,
+      targetDate:  validateIsoDate(a.targetDate),
       programId:   programId || undefined,
     },
   }
@@ -204,6 +214,8 @@ function resolveUpdateGoal(a, goals) {
   }
   setStr('title',       a.title)
   setStr('description', a.description)
+  const td = validateIsoDate(a.targetDate)
+  if (td) { action.targetDate = td; touched++ }
   if (typeof a.progress === 'number' && a.progress >= 0 && a.progress <= 100) {
     action.progress = Math.round(a.progress)
     touched++
