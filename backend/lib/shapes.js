@@ -13,6 +13,7 @@ function dbGoalToShape(row) {
     targetDate:      row.target_date   || null,
     steps:           Array.isArray(row.steps) ? row.steps : [],
     progress:        row.progress      ?? 0,
+    programId:       row.program_id    || null,
     createdAt:       new Date(row.created_at).getTime(),
   }
 }
@@ -25,7 +26,35 @@ function dbRowToEntry(row) {
     text:           row.text,
     analysis:       row.analysis,
     analysisFailed: row.analysis_failed,
+    programId:      row.program_id || null,
     createdAt:      new Date(row.created_at).getTime(),
+  }
+}
+
+// ── Program statuses ────────────────────────────────────────────────────────
+const PROGRAM_STATUSES = ['active', 'completed', 'archived']
+function normaliseProgramStatus(status) {
+  if (status === undefined || status === null) return null
+  const s = String(status).trim().toLowerCase()
+  if (s === '') return null
+  // Reuse goal-status synonyms where they overlap (done → completed, shelved → archived-ish)
+  // but be explicit: 'shelved' for a program means 'archived'.
+  if (s === 'done' || s === 'complete' || s === 'finished') return 'completed'
+  if (s === 'shelved' || s === 'shelve' || s === 'paused' || s === 'archive') return 'archived'
+  return s
+}
+
+function dbProgramToShape(row) {
+  return {
+    id:           row.id,
+    name:         row.name,
+    description:  row.description,
+    status:       row.status,
+    startDate:    row.start_date || null,
+    endDate:      row.end_date   || null,
+    learnerCount: row.learner_count ?? null,
+    createdAt:    new Date(row.created_at).getTime(),
+    updatedAt:    new Date(row.updated_at).getTime(),
   }
 }
 
@@ -103,6 +132,7 @@ async function replaceGoals(userId, month, goals) {
 }
 
 module.exports = {
-  dbGoalToShape, dbRowToEntry, toMonthLabel, replaceGoals,
+  dbGoalToShape, dbRowToEntry, dbProgramToShape, toMonthLabel, replaceGoals,
   GOAL_STATUSES, GOAL_COMPLETE_STATUS, normaliseGoalStatus,
+  PROGRAM_STATUSES, normaliseProgramStatus,
 }
