@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useApi } from '../composables/useApi.js'
 import { thisMonthLocal } from '../lib/dates.js'
+import ProgramPicker from './ProgramPicker.vue'
 import {
   Target, CheckCircle2, Archive, Trash2, ChevronDown,
   Sparkles, RefreshCw, Calendar, TrendingUp, Play,
@@ -22,10 +23,13 @@ const month           = ref(thisMonthLocal())
 const showAddForm  = ref(false)
 const addingSaving = ref(false)
 const addError     = ref('')
-const newGoal      = ref({ title: '', description: '' })
+const newGoal      = ref({ title: '', description: '', programId: null })
+
+// ── Filter (Program) ───────────────────────────────────────────────────────
+const filterProgramId = ref(null)   // null = all, '__none__' = untagged, '<uuid>' = specific
 
 function openAddForm() {
-  newGoal.value  = { title: '', description: '' }
+  newGoal.value  = { title: '', description: '', programId: null }
   addError.value = ''
   showAddForm.value = true
 }
@@ -41,7 +45,12 @@ async function saveNewGoal() {
   try {
     const created = await apiFetch('/api/goals', {
       method: 'POST',
-      body: JSON.stringify({ title: newGoal.value.title.trim(), description: newGoal.value.description.trim(), month: month.value }),
+      body: JSON.stringify({
+        title:       newGoal.value.title.trim(),
+        description: newGoal.value.description.trim(),
+        month:       month.value,
+        programId:   newGoal.value.programId || null,
+      }),
     })
     goals.value.push(created)
     showAddForm.value = false
@@ -71,10 +80,17 @@ onMounted(loadGoals)
 
 async function loadGoals() {
   loading.value = true
-  try { goals.value = await apiFetch(`/api/goals?month=${month.value}`) }
+  try {
+    const params = new URLSearchParams({ month: month.value })
+    if (filterProgramId.value) params.set('programId', filterProgramId.value)
+    goals.value = await apiFetch(`/api/goals?${params.toString()}`)
+  }
   catch { goals.value = [] }
   finally { loading.value = false }
 }
+
+// Reload when filter or month changes
+watch([filterProgramId, month], loadGoals)
 
 function toggleExpand(id) {
   const s = new Set(expanded.value)
@@ -204,6 +220,11 @@ function progressColor(pct) {
       </div>
     </div>
 
+    <!-- ── Program filter ──────────────────────────────────────────── -->
+    <div class="mx-auto max-w-3xl px-4 mt-6 flex items-center justify-end">
+      <ProgramPicker v-model="filterProgramId" size="sm" placeholder="All programs" :include-none-filter="true" />
+    </div>
+
     <!-- ── Loading ──────────────────────────────────────────────────── -->
     <div v-if="loading" class="flex flex-col items-center gap-3 py-16">
       <div class="h-10 w-10 rounded-2xl flex items-center justify-center animate-pulse"
@@ -298,6 +319,12 @@ function progressColor(pct) {
             @keydown.enter="saveNewGoal"
           />
         </div>
+      </div>
+
+      <!-- Optional: tag this goal to a program -->
+      <div class="mt-4">
+        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Program <span class="text-slate-300 font-normal normal-case">(optional)</span></label>
+        <ProgramPicker v-model="newGoal.programId" size="md" placeholder="No program" />
       </div>
 
       <p v-if="addError" class="mt-2 text-sm text-rose-600 bg-rose-50 rounded-xl px-3 py-2">{{ addError }}</p>

@@ -1,6 +1,7 @@
 <script setup>
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, reactive, watch } from 'vue'
 import { useApi } from '../composables/useApi.js'
+import ProgramPicker from './ProgramPicker.vue'
 import { Trophy, Star, Sparkles, MessageSquare, Copy, RefreshCw, X, CheckCircle2, TrendingUp } from 'lucide-vue-next'
 
 const { apiFetch } = useApi()
@@ -8,16 +9,23 @@ const { apiFetch } = useApi()
 const entries = ref([])
 const goals   = ref([])
 
+// Program filter — applies to both entries (wins are inside them) and goals.
+const filterProgramId = ref(null)
+
 async function loadEntries() {
-  const [e, g] = await Promise.allSettled([
-    apiFetch('/api/entries'),
-    apiFetch('/api/goals'),
-  ])
+  const entriesUrl = filterProgramId.value
+    ? `/api/entries?programId=${encodeURIComponent(filterProgramId.value)}`
+    : '/api/entries'
+  const goalsUrl = filterProgramId.value
+    ? `/api/goals?programId=${encodeURIComponent(filterProgramId.value)}`
+    : '/api/goals'
+  const [e, g] = await Promise.allSettled([apiFetch(entriesUrl), apiFetch(goalsUrl)])
   entries.value = e.status === 'fulfilled' ? e.value : []
   goals.value   = g.status === 'fulfilled' ? g.value : []
 }
 
 onMounted(loadEntries)
+watch(filterProgramId, loadEntries)
 
 const groupedByDate = computed(() => {
   const map = {}
@@ -139,6 +147,11 @@ function formatMonth(ym) {
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- ── Program filter ─────────────────────────────────────────────── -->
+    <div class="mx-auto max-w-3xl px-4 mt-6 flex items-center justify-end">
+      <ProgramPicker v-model="filterProgramId" size="sm" placeholder="All programs" :include-none-filter="true" />
     </div>
 
     <!-- ── Empty state ───────────────────────────────────────────────── -->
