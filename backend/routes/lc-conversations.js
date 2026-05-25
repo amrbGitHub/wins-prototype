@@ -175,10 +175,25 @@ router.delete('/:id', verifyToken, async (req, res) => {
   }
 })
 
+// Fallback title heuristic: take the first user message, trim, cap.
+// Used when Ollama is unavailable (CUDA error, unreachable, etc.) so the
+// conversation still gets a meaningful title and the sidebar doesn't stay
+// stuck on "New chat" forever.
+function fallbackTitleFrom(msgs) {
+  const firstUser = msgs.find(m => m.role === 'user')
+  if (!firstUser) return null
+  const raw = String(firstUser.content || '').trim()
+  if (!raw) return null
+  // Take up to ~6 words, single line, cap at MAX_TITLE_BYTES.
+  const words = raw.replace(/\s+/g, ' ').split(' ').slice(0, 6).join(' ')
+  return words.slice(0, MAX_TITLE_BYTES) || null
+}
+
 // POST /api/lc/conversations/:id/auto-title — generate a short title from
 // the conversation's actual content. Frontend calls this after the first
 // real exchange so the sidebar doesn't say "Hello, this is what I said…"
-// truncated forever. Uses a quick non-streaming Ollama call.
+// truncated forever. Uses a quick non-streaming Ollama call, with a
+// deterministic fallback if Ollama is unavailable.
 router.post('/:id/auto-title', verifyToken, async (req, res) => {
   try {
     // Load the conversation (auth-scoped) so we use the persisted state,
@@ -195,27 +210,40 @@ router.post('/:id/auto-title', verifyToken, async (req, res) => {
     const msgs = Array.isArray(row.messages) ? row.messages : []
     if (msgs.length < 2) return res.status(400).json({ error: 'Not enough conversation yet' })
 
-    // Compose a tight, deterministic prompt. We only need a 3-5 word topic.
-    const transcript = msgs.slice(0, 8).map(m =>
-      `${m.role === 'user' ? 'User' : 'LC'}: ${(m.content || '').slice(0, 400)}`
-    ).join('\n')
+    // Try LLM-summarized title first; fall back to first-user-message heuristic
+    // on ANY failure (Ollama down, CUDA error, empty response, etc.) so the
+    // chat ends up with *some* meaningful title instead of staying "New chat".
+    let title = null
+    let usedFallback = false
 
-    const completion = await ollamaChat({
-      messages: [
-        { role: 'system', content:
-          'Summarize the topic of this conversation in 3 to 6 words. ' +
-          'Return JUST the title — no quotes, no punctuation at the end, no "Title:" prefix, no explanation. ' +
-          'Examples of good titles: "May cohort retro", "Workshop pacing problem", "Log Alex\'s feedback win", "Plan Module 3 design". ' +
-          'Examples of bad titles: "A conversation about X", "User wants to...", "Discussion of goals".'
-        },
-        { role: 'user', content: transcript },
-      ],
-      temperature: 0.3,
-    })
-    let title = getContent(completion).trim()
-    // Strip surrounding quotes and trailing punctuation the model often adds
-    title = title.replace(/^["'`]+|["'`]+$/g, '').replace(/[.!?]+$/, '').trim()
-    if (!title) return res.status(500).json({ error: 'Empty title from model' })
+    try {
+      const transcript = msgs.slice(0, 8).map(m =>
+        `${m.role === 'user' ? 'User' : 'LC'}: ${(m.content || '').slice(0, 400)}`
+      ).join('\n')
+
+      const completion = await ollamaChat({
+        messages: [
+          { role: 'system', content:
+            'Summarize the topic of this conversation in 3 to 6 words. ' +
+            'Return JUST the title — no quotes, no punctuation at the end, no "Title:" prefix, no explanation. ' +
+            'Examples of good titles: "May cohort retro", "Workshop pacing problem", "Log Alex\'s feedback win", "Plan Module 3 design". ' +
+            'Examples of bad titles: "A conversation about X", "User wants to...", "Discussion of goals".'
+          },
+          { role: 'user', content: transcript },
+        ],
+        temperature: 0.3,
+      })
+      title = getContent(completion).trim()
+      title = title.replace(/^["'`]+|["'`]+$/g, '').replace(/[.!?]+$/, '').trim()
+      if (!title) throw new Error('empty title from model')
+    } catch (llmErr) {
+      // Ollama failed (CUDA error, etc.) — log and fall back deterministically
+      console.warn('[auto-title] Ollama unavailable, using heuristic fallback:', llmErr.message)
+      title = fallbackTitleFrom(msgs)
+      usedFallback = true
+      if (!title) return res.status(500).json({ error: 'No content to derive title from' })
+    }
+
     if (title.length > MAX_TITLE_BYTES) title = title.slice(0, MAX_TITLE_BYTES)
 
     const { data, error } = await supabase
@@ -226,7 +254,9 @@ router.post('/:id/auto-title', verifyToken, async (req, res) => {
       .select()
       .single()
     if (error) throw error
-    res.json(dbRowToConversation(data))
+    const result = dbRowToConversation(data)
+    if (usedFallback) result._fallback = true     // diagnostic for frontend logging
+    res.json(result)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
