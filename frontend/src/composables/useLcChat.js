@@ -19,7 +19,6 @@ import { useSTT }   from './useSTT.js'
 import { todayLocal, thisMonthLocal } from '../lib/dates.js'
 
 const WATCHDOG_MS = 60_000           // abort SSE if no chunk for this long
-const TTS_LOAD_TIMEOUT_MS = 30_000   // give up loading the voice model after this
 
 // ── action label/icon registry ────────────────────────────────────────────────
 // Returned by helpers — consumers import their own icon components and look up by type
@@ -600,27 +599,16 @@ export function useLcChat({ getFirstName, onGoalsUpdated, onNavigate, onAfterTur
     convoTranscript.value = ''
   }
 
-  // Kokoro voice load timeout — if it's still loading after N seconds, give up.
-  // The browser's built-in speechSynthesis kicks in as a fallback inside useTTS.
-  let _ttsLoadTimer = null
-  if (tts.isLoading.value) {
-    _ttsLoadTimer = setTimeout(() => {
-      if (tts.isLoading.value) {
-        console.warn('[LC] Kokoro voice model still loading after ' + (TTS_LOAD_TIMEOUT_MS / 1000) + 's — falling back to browser TTS')
-        // Letting useTTS hold its loading state is fine; speak() will fall through to fallback.
-      }
-    }, TTS_LOAD_TIMEOUT_MS)
-  }
-  onUnmounted(() => { if (_ttsLoadTimer) clearTimeout(_ttsLoadTimer) })
-
   return {
     // state
     messages, error, streaming, chatEl,
     convoStatus, convoTranscript,
     // derived
     lastAiMsg, lastActions, convoStatusLabel,
-    // tts passthrough (read-only)
-    ttsSupported: tts.isSupported, ttsLoading: tts.isLoading, ttsLoadProgress: tts.loadProgress,
+    // tts passthrough (read-only) — Kokoro tier removed, so no load progress
+    // to expose. Components fall back to the browser TTS instantly if
+    // ElevenLabs is unavailable.
+    ttsSupported: tts.isSupported,
     // stt passthrough — for showing model-load progress and detecting Whisper backend
     sttSupported:    computed(() => stt.isSupported),
     sttBackend:      stt.backend,        // 'native' | 'whisper' | 'none'

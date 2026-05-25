@@ -48,7 +48,7 @@ const {
   messages, error, streaming, chatEl,
   convoStatus, convoTranscript,
   lastAiMsg, lastActions, convoStatusLabel,
-  ttsSupported, ttsLoading, ttsLoadProgress,
+  ttsSupported,
   sttSupported, sttBackend, sttLoading, sttLoadProgress,
   reset, stopAll,
   runTextGreeting, sendTextMessage,
@@ -58,9 +58,11 @@ const {
 } = lc
 
 const voiceCapable = computed(() => sttSupported.value && ttsSupported.value)
-const voiceModelLoading  = computed(() => ttsLoading.value || sttLoading.value)
-const voiceModelProgress = computed(() => sttLoading.value ? sttLoadProgress.value : ttsLoadProgress.value)
-const voiceModelLabel    = computed(() => sttLoading.value ? 'Loading speech recognition…' : 'Loading voice…')
+// Only Whisper (STT) has a loadable model now — ElevenLabs is server-side
+// and the browser TTS fallback is instant.
+const voiceModelLoading  = computed(() => sttLoading.value)
+const voiceModelProgress = computed(() => sttLoadProgress.value)
+const voiceModelLabel    = computed(() => 'Loading speech recognition…')
 
 // ── Text input state ───────────────────────────────────────────────────────
 const textInput = ref('')
