@@ -168,8 +168,12 @@ export function useLcChat({ getFirstName, onGoalsUpdated, onNavigate, onAfterTur
     scrollBottom()
     onAfterTurn?.()
     if (speak) {
-      const completed = await speakAI(greeting)
-      if (completed && convoStatus.value === 'idle') startConvoListening()
+      await speakAI(greeting)
+      // Intentionally NOT auto-opening the mic here. The greeting is the FIRST
+      // assistant message in a fresh chat — the user hasn't initiated anything
+      // yet. Auto-opening felt pushy and forced users into a "thinking…" state
+      // they had to manually cancel. They click the orb when they want to talk.
+      // Subsequent AI replies (in runVoiceTurn) still auto-open the mic.
     }
     return greeting
   }
@@ -274,9 +278,14 @@ export function useLcChat({ getFirstName, onGoalsUpdated, onNavigate, onAfterTur
     })
   }
 
+  // The currently-active AbortController for the in-flight LLM SSE stream.
+  // Tracked so cancelVoiceTurn() can abort an in-progress generation.
+  let _activeController = null
+
   // ── core: stream one turn into messages[aiIdx], with watchdog ─────────────
   async function streamAITurn(aiIdx, history, { showLive = true } = {}) {
     const controller = new AbortController()
+    _activeController = controller
     let lastChunkAt = Date.now()
     let accumulated = ''
     const watchdog = setInterval(() => {
@@ -315,6 +324,7 @@ export function useLcChat({ getFirstName, onGoalsUpdated, onNavigate, onAfterTur
       return { ok: false, error: e }
     } finally {
       clearInterval(watchdog)
+      if (_activeController === controller) _activeController = null
     }
   }
 
@@ -561,6 +571,22 @@ export function useLcChat({ getFirstName, onGoalsUpdated, onNavigate, onAfterTur
     }
   }
 
+  // Hard-cancel whatever voice mode is doing. Use cases:
+  //   - User entered LC, mic auto-opened, they don't want to talk → cancel
+  //   - User clicked mic, didn't speak, doesn't want to wait for Whisper to
+  //     "transcribe silence" before going idle → cancel
+  //   - AI is generating but user wants out → cancel
+  //   - AI is speaking but user doesn't want to listen and doesn't want to
+  //     start a new recording → cancel (toggleConvoMic would start listening)
+  // Resets straight to idle without sending, transcribing, or processing.
+  function cancelVoiceTurn() {
+    _activeController?.abort()        // kill any in-flight LLM SSE request
+    stopConvoRecognition(false)       // abort STT — no transcribe, no send
+    tts.stop()                        // stop any TTS playback
+    convoTranscript.value = ''
+    convoStatus.value = 'idle'
+  }
+
   // ── text mode ──────────────────────────────────────────────────────────────
   async function runTextGreeting() {
     await addGreeting()
@@ -617,7 +643,7 @@ export function useLcChat({ getFirstName, onGoalsUpdated, onNavigate, onAfterTur
     // mutators
     reset, stopAll,
     runTextGreeting, sendTextMessage,
-    runVoiceTurn, toggleConvoMic, startConvoListening, stopConvoRecognition,
+    runVoiceTurn, toggleConvoMic, cancelVoiceTurn, startConvoListening, stopConvoRecognition,
     retryFromMessage, clickNavigateAction, executeAction,
     rehydrateActions, prepareActions, scrollBottom, newId,
   }

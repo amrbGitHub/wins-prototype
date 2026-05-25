@@ -4,7 +4,7 @@ import { useApi } from '../composables/useApi.js'
 import { useLcChat } from '../composables/useLcChat.js'
 import LcActionCard from './LcActionCard.vue'
 import {
-  Sparkles, Send, Trash2, Plus, RefreshCw, MessageSquare, Mic,
+  Sparkles, Send, Trash2, Plus, RefreshCw, MessageSquare, Mic, X,
   MessagesSquare, PanelLeft, PanelLeftClose, AlertCircle,
 } from 'lucide-vue-next'
 
@@ -52,7 +52,7 @@ const {
   sttSupported, sttBackend, sttLoading, sttLoadProgress,
   reset, stopAll,
   runTextGreeting, sendTextMessage,
-  runVoiceTurn, toggleConvoMic,
+  runVoiceTurn, toggleConvoMic, cancelVoiceTurn,
   retryFromMessage, clickNavigateAction,
   rehydrateActions, newId,
 } = lc
@@ -445,6 +445,19 @@ function relTime(ts) {
               Tap to start speaking
             </p>
           </div>
+
+          <!-- Hard-cancel button — visible whenever voice is doing something.
+               One-click escape hatch: aborts STT, kills any in-flight LLM
+               request, stops TTS, returns straight to idle. -->
+          <button
+            v-if="convoStatus !== 'idle'"
+            @click="cancelVoiceTurn"
+            class="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm hover:bg-slate-50 hover:border-slate-400 transition"
+            aria-label="Cancel current voice turn"
+          >
+            <X class="h-4 w-4" aria-hidden="true" />
+            Stop
+          </button>
 
           <div v-if="lastActions.length && convoStatus !== 'listening'" class="w-full flex flex-col gap-2">
             <LcActionCard v-for="(action, ai) in lastActions" :key="action._id"
