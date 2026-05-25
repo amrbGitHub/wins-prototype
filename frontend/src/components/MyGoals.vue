@@ -141,6 +141,32 @@ async function deleteGoal(goal) {
   catch (e) { alert('Failed: ' + e.message) }
 }
 
+// ── Program tag editing on existing goals ─────────────────────────────────
+// Loaded once and cached. Used to map goal.programId → "May Leadership Cohort"
+// for display, and to populate the per-goal program picker dropdown.
+const programs = ref([])
+async function loadPrograms() {
+  try { programs.value = (await apiFetch('/api/programs')) || [] }
+  catch { programs.value = [] }
+}
+onMounted(loadPrograms)
+
+function programNameFor(programId) {
+  if (!programId) return ''
+  return programs.value.find(p => p.id === programId)?.name || ''
+}
+
+async function setGoalProgram(goal, programId) {
+  // Empty string from <select> means "no program"; backend treats null as untag.
+  const newId = programId || null
+  if ((goal.programId || null) === newId) return
+  try {
+    patchGoal(await apiFetch(`/api/goals/${goal.id}`, {
+      method: 'PATCH', body: JSON.stringify({ programId: newId }),
+    }))
+  } catch (e) { alert('Failed to update program tag: ' + e.message) }
+}
+
 function patchGoal(updated) {
   const idx = goals.value.findIndex(g => g.id === updated.id)
   if (idx !== -1) goals.value[idx] = updated
@@ -376,6 +402,24 @@ function progressColor(pct) {
                 <Calendar class="h-3 w-3" />
                 {{ formatTargetDate(goal.targetDate) }}
               </div>
+            </div>
+
+            <!-- Inline program tag editor. Always visible so the trainer can
+                 retag a goal without recreating it. Shows current tag (if any)
+                 + a dropdown to change. Defaults to "no program". -->
+            <div class="mt-3 flex items-center gap-2">
+              <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Program</span>
+              <select
+                :value="goal.programId || ''"
+                @change="setGoalProgram(goal, $event.target.value)"
+                class="text-xs px-2 py-1 rounded-lg border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-200"
+                :aria-label="`Tag goal ${goal.title} to a program`"
+              >
+                <option value="">No program</option>
+                <option v-for="p in programs" :key="p.id" :value="p.id">{{ p.name }}</option>
+              </select>
+              <span v-if="goal.programId && !programNameFor(goal.programId)"
+                    class="text-[10px] text-amber-600 italic">(unknown program — was it deleted?)</span>
             </div>
 
             <!-- Success criteria -->
