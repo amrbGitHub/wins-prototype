@@ -3,7 +3,10 @@ const { ollamaChat, getContent, parseJSON } = require('../lib/ollama')
 const { verifyToken } = require('../middleware/auth')
 
 const router = Router()
-router.use(verifyToken)   // every AI route here requires auth
+// NOTE: this router is mounted at /api (not /api/wins or similar) for legacy
+// URL compatibility. Because of that mount path, router-wide middleware would
+// run for EVERY /api/* request, including routes owned by other route files.
+// So we attach verifyToken per-route below instead.
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -49,7 +52,7 @@ async function extractWins(systemExtra, userContent) {
 }
 
 // ── POST /api/analyze — structured check-in → wins ───────────────────────────
-router.post('/analyze', async (req, res) => {
+router.post('/analyze', verifyToken, async (req, res) => {
   try {
     const { wentWell, wasHard, visibleWin, recognizeWho, outcome } = req.body || {}
     const result = await extractWins(
@@ -63,7 +66,7 @@ router.post('/analyze', async (req, res) => {
 })
 
 // ── POST /api/analyze-journal — free-form journal → wins ─────────────────────
-router.post('/analyze-journal', async (req, res) => {
+router.post('/analyze-journal', verifyToken, async (req, res) => {
   try {
     const { text, type } = req.body || {}
     if (!text?.trim()) return res.status(400).json({ error: 'Missing journal text' })
@@ -79,7 +82,7 @@ router.post('/analyze-journal', async (req, res) => {
 })
 
 // ── POST /api/draft — generate celebration message draft ─────────────────────
-router.post('/draft', async (req, res) => {
+router.post('/draft', verifyToken, async (req, res) => {
   try {
     const { win, channel, tone, outcome, recognizeWho } = req.body || {}
     if (!win?.title || !win?.story) return res.status(400).json({ error: 'Missing win.title or win.story' })
@@ -114,7 +117,7 @@ Return ONLY the draft text — no markdown fences, no preamble, no sign-off name
 })
 
 // ── POST /api/generate-message — celebrate a single win ──────────────────────
-router.post('/generate-message', async (req, res) => {
+router.post('/generate-message', verifyToken, async (req, res) => {
   try {
     const { win, customRequest } = req.body || {}
     if (!win?.title || !win?.story) return res.status(400).json({ error: 'Missing win data' })
