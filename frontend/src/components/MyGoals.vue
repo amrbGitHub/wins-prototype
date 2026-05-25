@@ -480,27 +480,37 @@ function progressColor(pct) {
             </div>
           </div>
 
-          <!-- Action bar -->
-          <div class="flex items-center justify-between px-6 py-3"
+          <!-- Action bar — labeled buttons with clear color affordance.
+               The earlier version had icon-only mini buttons that disappeared
+               into the card. Now each action has a label + matching border. -->
+          <div class="flex items-center justify-between px-6 py-3 gap-2 flex-wrap"
                style="border-top:1px solid rgba(0,0,0,0.05);background:#fafafa">
             <button @click="updateStatus(goal, 'completed')"
-                    class="flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-xl transition-all"
-                    style="color:#059669;background:#f0fdf4;border:1px solid rgba(5,150,105,0.2)"
+                    class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition-all"
+                    style="color:#059669;background:#f0fdf4;border:1px solid rgba(5,150,105,0.35)"
                     onmouseover="this.style.background='#dcfce7'"
                     onmouseout="this.style.background='#f0fdf4'">
-              <CheckCircle2 class="h-3.5 w-3.5" />
+              <CheckCircle2 class="h-3.5 w-3.5" aria-hidden="true" />
               Mark achieved
             </button>
-            <div class="flex items-center gap-1">
+            <div class="flex items-center gap-2">
               <button @click="updateStatus(goal, 'shelved')"
-                      class="h-8 w-8 rounded-xl flex items-center justify-center transition-all text-slate-300 hover:text-amber-500 hover:bg-amber-50"
-                      title="Shelf this goal">
-                <Archive class="h-4 w-4" />
+                      class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition-all"
+                      style="color:#b45309;background:#fffbeb;border:1px solid rgba(180,83,9,0.30)"
+                      onmouseover="this.style.background='#fef3c7'"
+                      onmouseout="this.style.background='#fffbeb'"
+                      :aria-label="`Shelve goal ${goal.title}`">
+                <Archive class="h-3.5 w-3.5" aria-hidden="true" />
+                Shelve
               </button>
               <button @click="deleteGoal(goal)"
-                      class="h-8 w-8 rounded-xl flex items-center justify-center transition-all text-slate-300 hover:text-rose-500 hover:bg-rose-50"
-                      title="Delete goal">
-                <Trash2 class="h-4 w-4" />
+                      class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition-all"
+                      style="color:#be123c;background:#fff1f2;border:1px solid rgba(190,18,60,0.30)"
+                      onmouseover="this.style.background='#ffe4e6'"
+                      onmouseout="this.style.background='#fff1f2'"
+                      :aria-label="`Delete goal ${goal.title}`">
+                <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
+                Delete
               </button>
             </div>
           </div>
@@ -524,14 +534,22 @@ function progressColor(pct) {
           <div class="flex-1 min-w-0">
             <p class="text-sm font-semibold text-slate-600 line-through decoration-emerald-400/50">{{ goal.title }}</p>
           </div>
-          <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <!-- Visible at all times (was hover-only) so the controls are discoverable -->
+          <div class="flex items-center gap-2 shrink-0">
             <button @click="updateStatus(goal, 'active')"
-                    class="text-xs font-semibold text-slate-400 hover:text-slate-600 px-2 py-1 rounded-lg hover:bg-white/80 transition">
+                    class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition-all"
+                    style="color:#0d5f6b;background:#e0f5f7;border:1px solid rgba(13,95,107,0.30)"
+                    :aria-label="`Undo: move ${goal.title} back to active`">
               Undo
             </button>
             <button @click="deleteGoal(goal)"
-                    class="h-7 w-7 rounded-lg flex items-center justify-center text-slate-300 hover:text-rose-500 hover:bg-white/80 transition">
-              <Trash2 class="h-3.5 w-3.5" />
+                    class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition-all"
+                    style="color:#be123c;background:#fff1f2;border:1px solid rgba(190,18,60,0.30)"
+                    onmouseover="this.style.background='#ffe4e6'"
+                    onmouseout="this.style.background='#fff1f2'"
+                    :aria-label="`Delete goal ${goal.title}`">
+              <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
+              Delete
             </button>
           </div>
         </div>
@@ -558,14 +576,20 @@ function progressColor(pct) {
           </div>
           <div class="flex items-center gap-2 shrink-0">
             <button @click="updateStatus(goal, 'active')"
-                    class="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition-all"
-                    style="color:#0d5f6b;background:#e0f5f7;border:1px solid rgba(13,95,107,0.2)">
-              <Play class="h-3 w-3" />
+                    class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition-all"
+                    style="color:#0d5f6b;background:#e0f5f7;border:1px solid rgba(13,95,107,0.30)"
+                    :aria-label="`Reactivate ${goal.title}`">
+              <Play class="h-3 w-3" aria-hidden="true" />
               Reactivate
             </button>
             <button @click="deleteGoal(goal)"
-                    class="h-7 w-7 rounded-lg flex items-center justify-center text-slate-300 hover:text-rose-500 transition">
-              <Trash2 class="h-3.5 w-3.5" />
+                    class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition-all"
+                    style="color:#be123c;background:#fff1f2;border:1px solid rgba(190,18,60,0.30)"
+                    onmouseover="this.style.background='#ffe4e6'"
+                    onmouseout="this.style.background='#fff1f2'"
+                    :aria-label="`Delete goal ${goal.title}`">
+              <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
+              Delete
             </button>
           </div>
         </div>
