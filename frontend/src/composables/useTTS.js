@@ -20,6 +20,8 @@ import { ref } from 'vue'
 import { useAuth } from './useAuth.js'
 
 const KOKORO_LOAD_TIMEOUT_MS = 30_000
+// Same BASE_URL pattern useApi uses, so cross-origin / proxy setups work.
+const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
 // ── Module-level singletons (shared across all useTTS() callers) ─────────────
 let   _tts         = null
@@ -41,9 +43,10 @@ let _serverTtsAvailable = false
 async function checkServerTts() {
   if (_serverTtsKnown) return _serverTtsAvailable
   try {
-    const res = await fetch('/api/tts/status')
+    const res = await fetch(`${BASE_URL}/api/tts/status`)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json()
+    console.info('[useTTS] /api/tts/status →', data)
     _serverTtsAvailable = !!data.available
   } catch {
     _serverTtsAvailable = false
@@ -77,7 +80,7 @@ async function speakViaElevenLabs(text) {
   const { getAccessToken } = useAuth()
   const token = getAccessToken()
   if (!token) throw new Error('no auth token')
-  const res = await fetch('/api/tts/speak', {
+  const res = await fetch(`${BASE_URL}/api/tts/speak`, {
     method: 'POST',
     headers: {
       'Content-Type':  'application/json',
@@ -205,21 +208,26 @@ export function useTTS() {
     if (!clean) return
 
     // Tier 1: ElevenLabs (if backend has the key)
-    if (await checkServerTts()) {
+    const serverAvailable = await checkServerTts()
+    if (serverAvailable) {
       try {
-        _backendInUse.value = 'elevenlabs'
         await speakViaElevenLabs(clean)
+        _backendInUse.value = 'elevenlabs'
+        console.info('[useTTS] backend=elevenlabs')
         return
       } catch (err) {
         console.warn('[useTTS] ElevenLabs failed, falling back to Kokoro:', err.message)
         // Fall through to tier 2
       }
+    } else {
+      console.info('[useTTS] /api/tts/status reports ElevenLabs unavailable — using Kokoro')
     }
 
     // Tier 2: Kokoro
     try {
-      _backendInUse.value = 'kokoro'
       await speakViaKokoro(clean)
+      _backendInUse.value = 'kokoro'
+      console.info('[useTTS] backend=kokoro')
       return
     } catch (err) {
       console.warn('[useTTS] Kokoro failed, using browser TTS:', err.message)
@@ -227,6 +235,7 @@ export function useTTS() {
 
     // Tier 3: browser SpeechSynthesis
     _backendInUse.value = 'fallback'
+    console.info('[useTTS] backend=browser-fallback')
     await speakFallback(clean)
   }
 
