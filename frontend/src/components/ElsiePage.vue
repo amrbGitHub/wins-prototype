@@ -191,22 +191,43 @@ async function persistConversationTail() {
     if (myGen !== _saveGen || conversationId.value !== targetId) return  // user switched chats; the data still landed on the right row but don't update local bookkeeping
     _lastPersistedCount = all.length
 
-    // Update title from first user message if it's still the default
-    if (conversationTitle.value === 'New chat' || conversationTitle.value === 'Plan my month') {
-      const firstUser = all.find(m => m.role === 'user')
-      if (firstUser) {
-        const t = firstUser.content.trim().slice(0, 48) + (firstUser.content.length > 48 ? '…' : '')
-        await apiFetch(`/api/lc/conversations/${targetId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ title: t }),
-        })
-        conversationTitle.value = t
-      }
+    // Auto-title: once we have a real exchange (≥1 user msg + ≥1 assistant
+    // reply) AND the title is still the default placeholder, ask LC to
+    // generate a short topic-paraphrase. Fire-and-forget; non-blocking.
+    const userCount      = all.filter(m => m.role === 'user').length
+    const assistantCount = all.filter(m => m.role === 'assistant').length
+    const titleIsDefault = ['New chat', 'Chat', ''].includes(conversationTitle.value || '')
+    if (titleIsDefault && userCount >= 1 && assistantCount >= 1) {
+      generateAutoTitle(targetId, myGen)   // intentionally not awaited
     }
+
     // Refresh sidebar list (don't await — non-critical)
     loadConversations()
   } catch (e) {
     console.error('[LC] persist failed:', e)
+  }
+}
+
+// Background call to /auto-title. Runs once per conversation, guarded by
+// the save generation so a switched chat doesn't clobber the new title.
+let _autoTitleInFlight = false
+async function generateAutoTitle(targetId, myGen) {
+  if (_autoTitleInFlight) return
+  _autoTitleInFlight = true
+  try {
+    const updated = await apiFetch(`/api/lc/conversations/${targetId}/auto-title`, {
+      method: 'POST',
+    })
+    if (myGen !== _saveGen || conversationId.value !== targetId) return
+    if (updated?.title) {
+      conversationTitle.value = updated.title
+      loadConversations()   // refresh sidebar to show the new title
+    }
+  } catch (e) {
+    // Non-fatal — title stays as the default. Just log.
+    console.warn('[LC] auto-title failed:', e?.message || e)
+  } finally {
+    _autoTitleInFlight = false
   }
 }
 
