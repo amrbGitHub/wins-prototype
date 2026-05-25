@@ -4,7 +4,7 @@ import { useApi } from '../composables/useApi.js'
 import { useLcChat } from '../composables/useLcChat.js'
 import LcActionCard from './LcActionCard.vue'
 import {
-  Sparkles, Send, Trash2, Plus, RefreshCw, MessageSquare, Mic, X,
+  Sparkles, Send, Trash2, Plus, RefreshCw, MessageSquare, Mic, X, Download,
   MessagesSquare, PanelLeft, PanelLeftClose, AlertCircle,
 } from 'lucide-vue-next'
 
@@ -172,6 +172,43 @@ async function deleteConversation(id, ev) {
   }
 }
 
+// Download the full conversation as JSON. Includes message contents, action
+// payloads, action result states, and failure annotations — everything needed
+// to debug a session without screenshots. Filename slug uses the chat title.
+async function downloadConversation(id, ev) {
+  ev?.stopPropagation()
+  try {
+    const full = await apiFetch(`/api/lc/conversations/${id}`)
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      conversation: {
+        id:        full.id,
+        title:     full.title,
+        createdAt: new Date(full.createdAt).toISOString(),
+        updatedAt: new Date(full.updatedAt).toISOString(),
+        messages:  full.messages || [],
+      },
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url  = URL.createObjectURL(blob)
+    const slug = String(full.title || 'untitled')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 50) || 'chat'
+    const date = new Date().toISOString().slice(0, 10)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `lc-chat-${slug}-${date}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    alert('Failed to download chat: ' + e.message)
+  }
+}
+
 // Persist only the NEW messages since last save. Called on turn boundaries
 // (onAfterTurn from the composable). Does nothing if no new messages.
 async function persistConversationTail() {
@@ -298,11 +335,18 @@ function relTime(ts) {
               {{ relTime(c.updatedAt) }}
             </p>
           </div>
-          <button @click="deleteConversation(c.id, $event)"
-            class="shrink-0 opacity-0 group-hover:opacity-100 transition text-slate-400 hover:text-rose-500"
-            aria-label="Delete chat">
-            <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
+          <div class="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+            <button @click="downloadConversation(c.id, $event)"
+              class="text-slate-400 hover:text-cyan-600"
+              aria-label="Download chat as JSON">
+              <Download class="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+            <button @click="deleteConversation(c.id, $event)"
+              class="text-slate-400 hover:text-rose-500"
+              aria-label="Delete chat">
+              <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </div>
         </button>
       </div>
     </aside>
