@@ -20,6 +20,7 @@ app.use('/api/programs',    require('./routes/programs'))
 app.use('/api/reflections', require('./routes/reflections'))
 app.use('/api/profile',     require('./routes/profile'))
 app.use('/api/elsie',       require('./routes/elsie'))
+app.use('/api/tts',         require('./routes/tts'))           // ElevenLabs proxy
 app.use('/api/lc/conversations', require('./routes/lc-conversations'))
 app.use('/api/dev',         require('./routes/dev'))           // testing-only: clean-slate, etc.
 
