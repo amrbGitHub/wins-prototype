@@ -177,6 +177,22 @@ function resolveGoalTargeted(a, goals, opts = {}) {
   // Build the reference string the model gave us
   let ref = String(a.goalRef || '').trim()
   if (!ref && allowTitleFallback) ref = String(a.title || '').trim()
+
+  // Single-active-goal disambiguation: if the user has exactly ONE active goal
+  // (or 1 total) and the model didn't supply a clear ref ("the goal", "it",
+  // empty), use that goal. The user's intent is unambiguous in this case;
+  // refusing because the model was lazy makes us look broken.
+  const activeGoals = goals.filter(g => g.status === 'active')
+  const candidatePool = activeGoals.length ? activeGoals : goals
+  if (candidatePool.length === 1 && (!ref || isVagueRef(ref))) {
+    const only = candidatePool[0]
+    return {
+      ok: true,
+      action: { ...a, goalId: only.id, goalRef: undefined, goalTitle: only.title,
+                _match: ref ? { from: ref, to: only.title, confidence: 'sole-goal' } : null },
+    }
+  }
+
   if (!ref) return { ok: false, reason: 'no goal reference provided' }
 
   const hit = findGoalByRef(goals, ref)
@@ -192,6 +208,21 @@ function resolveGoalTargeted(a, goals, opts = {}) {
     ok: true,
     action: { ...a, goalId: hit.goal.id, goalRef: undefined, goalTitle: hit.goal.title, _match },
   }
+}
+
+// Detect a goalRef that's just a pronoun/stop-words ("the goal", "it", "my goal").
+// When the user has one active goal, these vague refs should resolve to it
+// rather than being rejected for "couldn't find a goal matching 'the goal'".
+function isVagueRef(ref) {
+  if (typeof ref !== 'string') return true
+  const r = ref.toLowerCase().trim()
+  if (!r) return true
+  const VAGUE = new Set([
+    'the goal', 'my goal', 'that goal', 'this goal',
+    'it', 'this', 'that', 'the one', 'the only one',
+    'goal', 'the active goal',
+  ])
+  return VAGUE.has(r)
 }
 
 function resolveUpdateGoal(a, goals) {
