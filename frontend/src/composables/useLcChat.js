@@ -73,7 +73,7 @@ export function actionPendingLabel(action) {
 }
 
 // ── core composable ──────────────────────────────────────────────────────────
-export function useLcChat({ getFirstName, onGoalsUpdated, onNavigate, onAfterTurn } = {}) {
+export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onNavigate, onAfterTurn } = {}) {
   const { apiStream, apiFetch } = useApi()
   const tts = useTTS()
 
@@ -184,8 +184,9 @@ export function useLcChat({ getFirstName, onGoalsUpdated, onNavigate, onAfterTur
     for await (const chunk of apiStream('/api/elsie/chat', {
       method: 'POST',
       body: JSON.stringify({
-        messages:  historyMessages,
-        firstName: getFirstName?.() || '',
+        messages:       historyMessages,
+        firstName:      getFirstName?.() || '',
+        conversationId: getConversationId?.() || null,   // gateway: link pseudonyms used this turn to this conversation
       }),
       signal,
     })) {

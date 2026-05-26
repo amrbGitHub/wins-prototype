@@ -5,7 +5,7 @@ import { useLcChat } from '../composables/useLcChat.js'
 import LcActionCard from './LcActionCard.vue'
 import {
   Sparkles, Send, Trash2, Plus, RefreshCw, MessageSquare, Mic, X, Download,
-  MessagesSquare, PanelLeft, PanelLeftClose, AlertCircle,
+  MessagesSquare, PanelLeft, PanelLeftClose, AlertCircle, Eraser,
 } from 'lucide-vue-next'
 
 const props = defineProps({ firstName: { type: String, default: '' } })
@@ -38,10 +38,11 @@ let _lastPersistedCount = 0
 
 // ── LC chat composable ─────────────────────────────────────────────────────
 const lc = useLcChat({
-  getFirstName:   () => props.firstName,
-  onGoalsUpdated: () => emit('goals-updated'),
-  onNavigate:     (id) => emit('navigate', id),
-  onAfterTurn:    () => persistConversationTail(),
+  getFirstName:      () => props.firstName,
+  getConversationId: () => conversationId.value,   // for gateway: link pseudonyms to this convo
+  onGoalsUpdated:    () => emit('goals-updated'),
+  onNavigate:        (id) => emit('navigate', id),
+  onAfterTurn:       () => persistConversationTail(),
 })
 
 const {
@@ -169,6 +170,25 @@ async function deleteConversation(id, ev) {
     }
   } catch (e) {
     console.error('[LC] delete conversation failed:', e)
+  }
+}
+
+// Global wipe of the per-user pseudonym registry. After this, the next time
+// LC sees "James" it mints a brand-new pseudonym — Claude has zero memory
+// of any prior conversations about James (or anyone). Use sparingly; cannot
+// be undone. Endpoint mounted only when LC_GATEWAY_ENABLED.
+async function clearLcMemory() {
+  const confirmed = confirm(
+    'Clear LC\'s memory of every person, organization, and place you\'ve mentioned?\n\n' +
+    'This drops all pseudonym mappings. Past conversations stay, but LC will no longer recognize anyone from them as the "same person" going forward. Cannot be undone.'
+  )
+  if (!confirmed) return
+  try {
+    const { deleted } = await apiFetch('/api/elsie/clear-pseudonyms', { method: 'POST' })
+    alert(`Cleared ${deleted} pseudonym${deleted === 1 ? '' : 's'} from LC's memory.`)
+  } catch (e) {
+    console.error('[LC] clear pseudonyms failed:', e)
+    alert('Failed to clear LC memory — check the console.')
   }
 }
 
@@ -347,6 +367,18 @@ function relTime(ts) {
               <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
+        </button>
+      </div>
+
+      <!-- Settings footer: privacy controls. Wipes the per-user pseudonym
+           registry. Use when starting fresh or after a sensitive conversation
+           where memory continuity isn't worth the privacy artifact. -->
+      <div class="border-t px-3 py-3" style="border-color:rgba(0,0,0,0.06)">
+        <button @click="clearLcMemory"
+          class="w-full flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-[11px] font-semibold text-slate-600 hover:text-rose-600 hover:bg-rose-50 transition"
+          aria-label="Clear LC's memory of all people, orgs, and places">
+          <Eraser class="h-3.5 w-3.5" aria-hidden="true" />
+          Clear LC memory
         </button>
       </div>
     </aside>

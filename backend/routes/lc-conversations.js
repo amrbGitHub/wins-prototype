@@ -161,6 +161,11 @@ router.patch('/:id', verifyToken, async (req, res) => {
 })
 
 // DELETE /api/lc/conversations/:id
+// Cascade also drops junction rows in lc_conversation_pseudonyms. After
+// that we sweep orphan pseudonyms (registry rows no other conversation
+// references) so deleting an old chat actually forgets the people in it.
+// Sweep failure is non-fatal — the conversation IS deleted; the user can
+// also hit the global wipe button if registry hygiene matters more.
 router.delete('/:id', verifyToken, async (req, res) => {
   try {
     const { error } = await supabase
@@ -169,6 +174,10 @@ router.delete('/:id', verifyToken, async (req, res) => {
       .eq('id', req.params.id)
       .eq('user_id', req.userId)
     if (error) throw error
+
+    const { error: gcErr } = await supabase.rpc('delete_orphan_pseudonyms', { p_user_id: req.userId })
+    if (gcErr) console.warn('[lc-conversations] orphan GC failed (non-fatal):', gcErr.message)
+
     res.status(204).send()
   } catch (err) {
     res.status(500).json({ error: err.message })

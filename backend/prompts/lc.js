@@ -561,4 +561,4 @@ RESPOND ONLY WITH VALID JSON (no text outside the JSON):
 {"message":"your spoken response","actions":[]}`
 }
 
-module.exports = { LC_RESPONSE_SCHEMA, buildCheckinSystem }
+module.exports = { LC_RESPONSE_SCHEMA, buildCheckinSystem, LC_VOICE, LD_REFERENCE, TASK_PLAYBOOKS }

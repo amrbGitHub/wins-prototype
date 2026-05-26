@@ -1,6 +1,11 @@
 const path = require('path')
-// Explicitly resolve .env relative to this file, not process.cwd()
-require('dotenv').config({ path: path.join(__dirname, '.env') })
+// Explicitly resolve .env relative to this file, not process.cwd().
+// `override: true` makes .env values win over pre-existing shell env vars.
+// Without it, an empty `ANTHROPIC_API_KEY=` set somewhere in your shell
+// profile silently shadows the real key in .env and dotenv quietly skips it.
+// For a dev backend, .env is the source of truth — shell overrides have
+// caused more debugging time than they've ever saved.
+require('dotenv').config({ path: path.join(__dirname, '.env'), override: true })
 
 const { createClient } = require('@supabase/supabase-js')
 
