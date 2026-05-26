@@ -143,18 +143,46 @@ function resolveCreateGoal(a, programs) {
   }
 }
 
-function resolveCreateProgram(a) {
+function resolveCreateProgram(a, programs = []) {
   const name = String(a.name || a.title || '').trim()
   if (!name) return { ok: false, reason: 'create_program needs a name' }
+
+  // Duplicate detection — fuzzy-match against existing programs. Local 7B
+  // models love to "create" a program the user is already describing. If a
+  // plausible match exists, reject and force LC to confirm with the user.
+  if (programs.length) {
+    const hit = findProgramByRef(programs, name)
+    if (hit) {
+      return {
+        ok: false,
+        reason: `a program named "${hit.program.name}" already exists (matched "${name}" → "${hit.program.name}" via ${hit.confidence}). Don't create a duplicate — confirm with the user whether they want to use the existing one.`,
+      }
+    }
+  }
+
+  // Hard minimums. A program needs more than a bare name — without description,
+  // dates, OR learner count, there isn't enough shape for it to be useful.
+  // Drop the action and tell the model to shape with the user first.
+  const desc = String(a.description || '').trim()
+  const hasStart = typeof a.startDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.startDate)
+  const hasEnd   = typeof a.endDate   === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.endDate)
+  const hasLearners = typeof a.learnerCount === 'number' && a.learnerCount > 0
+  const shapeSignals = [desc, hasStart, hasEnd, hasLearners].filter(Boolean).length
+  if (shapeSignals < 2) {
+    return {
+      ok: false,
+      reason: `create_program for "${name}" was emitted without enough shaping — needs at least 2 of: description, startDate, endDate, learnerCount. Ask the user about audience, timeline, and format BEFORE creating.`,
+    }
+  }
+
   const action = {
     type: 'create_program',
     name,
   }
-  const desc = String(a.description || '').trim()
   if (desc) action.description = desc
-  if (typeof a.startDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.startDate)) action.startDate = a.startDate
-  if (typeof a.endDate   === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.endDate))   action.endDate   = a.endDate
-  if (typeof a.learnerCount === 'number' && a.learnerCount >= 0) action.learnerCount = Math.floor(a.learnerCount)
+  if (hasStart) action.startDate = a.startDate
+  if (hasEnd)   action.endDate   = a.endDate
+  if (hasLearners) action.learnerCount = Math.floor(a.learnerCount)
   if (typeof a.status === 'string') {
     const s = normaliseProgramStatus(a.status)
     if (s && PROGRAM_STATUSES.includes(s)) action.status = s
@@ -325,7 +353,7 @@ function resolveActions(rawActions, goals, programs = []) {
       case 'delete_goal':    r = resolveDeleteGoal(a, goals); break
       case 'log_win':        r = resolveLogWin(a, programs); break
       case 'navigate':       r = resolveNavigate(a); break
-      case 'create_program': r = resolveCreateProgram(a); break
+      case 'create_program': r = resolveCreateProgram(a, programs); break
       default:
         dropped.push({ type: a.type, reason: `unknown action type "${a.type}"` }); continue
     }
