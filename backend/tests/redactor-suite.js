@@ -135,6 +135,13 @@ function runCryptoInvariants() {
   let tamperFailed = false
   try { decryptForUser(userA, tampered) } catch { tamperFailed = true }
   check('tampered ciphertext rejected', tamperFailed)
+
+  // Decrypt accepts Postgres bytea hex-string format (the shape supabase-js
+  // returns for BYTEA columns). Regression for "ciphertext too short" bug.
+  const hexEncoded = '\\x' + ct.toString('hex')
+  const ptFromHex = decryptForUser(userA, hexEncoded)
+  check('decrypt accepts Postgres bytea hex string', ptFromHex === 'James',
+    ptFromHex !== 'James' ? `got "${ptFromHex}"` : '')
 }
 
 ;(async () => {

@@ -339,4 +339,42 @@ function rehydrateText(text, mappings) {
   return result
 }
 
-module.exports = { redactText, canonicalizeMappings, applyCanonicals, rehydrateText, getPipeline }
+// ── Action-payload rehydration ──────────────────────────────────────────────
+// When the model emits a tool_use action, every text field in the payload may
+// contain pseudonyms (e.g. create_goal.title = "Coach Person_4F2C on feedback").
+// Before the action executes against the user's DB we swap them back to real
+// names so the goals/wins/etc table holds plaintext, not opaque tokens.
+//
+// Pure function — returns a new action object, never mutates the input.
+// Operates only on known text fields per action type; ignores unknown fields.
+const ACTION_TEXT_FIELDS = {
+  create_goal:    ['title', 'description', 'programRef'],
+  update_goal:    ['title', 'description', 'goalRef'],
+  delete_goal:    ['goalRef', 'title'],
+  log_win:        ['title', 'story', 'evidence', 'programRef'],
+  create_program: ['name', 'description'],
+  navigate:       ['label'],
+}
+
+function rehydrateAction(action, mappings) {
+  if (!action || typeof action !== 'object' || !action.type) return action
+  const fields = ACTION_TEXT_FIELDS[action.type] || []
+  const out = { ...action }
+  for (const field of fields) {
+    if (typeof out[field] === 'string') {
+      out[field] = rehydrateText(out[field], mappings)
+    }
+  }
+  // celebrationIdeas is an array of strings on log_win.
+  if (action.type === 'log_win' && Array.isArray(out.celebrationIdeas)) {
+    out.celebrationIdeas = out.celebrationIdeas.map(s =>
+      typeof s === 'string' ? rehydrateText(s, mappings) : s
+    )
+  }
+  return out
+}
+
+module.exports = {
+  redactText, canonicalizeMappings, applyCanonicals,
+  rehydrateText, rehydrateAction, getPipeline,
+}

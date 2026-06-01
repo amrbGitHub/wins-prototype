@@ -179,69 +179,29 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
   }
 
   // ── SSE call ───────────────────────────────────────────────────────────────
+  // Backend streams prose deltas and emits a final `done` event with the full
+  // rehydrated message + resolved actions. Any error during streaming arrives
+  // as `chunk.error` and is thrown — caller catches.
   async function callAPI(historyMessages, onDelta = null, signal = undefined) {
-    let finalMessage = '', finalActions = [], serverFailed = false, serverErrorMsg = null, serverDropped = []
+    let finalMessage = '', finalActions = [], serverDropped = []
     for await (const chunk of apiStream('/api/elsie/chat', {
       method: 'POST',
       body: JSON.stringify({
         messages:       historyMessages,
         firstName:      getFirstName?.() || '',
-        conversationId: getConversationId?.() || null,   // gateway: link pseudonyms used this turn to this conversation
+        conversationId: getConversationId?.() || null,
       }),
       signal,
     })) {
       if (chunk.error) throw new Error(chunk.error)
       if (chunk.delta && onDelta) onDelta(chunk.delta)
       if (chunk.done) {
-        finalMessage   = chunk.message || ''
-        finalActions   = Array.isArray(chunk.actions) ? chunk.actions
-                       : Array.isArray(chunk.suggestions) ? chunk.suggestions
-                       : []
-        serverFailed   = !!chunk.failed
-        serverErrorMsg = chunk.errorMsg || null
-        serverDropped  = Array.isArray(chunk.dropped) ? chunk.dropped : []
+        finalMessage  = chunk.message || ''
+        finalActions  = Array.isArray(chunk.actions) ? chunk.actions : []
+        serverDropped = Array.isArray(chunk.dropped) ? chunk.dropped : []
       }
     }
-    return { message: finalMessage, actions: finalActions, serverFailed, serverErrorMsg, serverDropped }
-  }
-
-  // Live preview helper. NOTE: this is best-effort and intentionally simple —
-  // it scans for the first occurrence of `"message":"..."` and decodes basic
-  // escape sequences. JSON-schema mode emits keys in declared order, so this
-  // works in practice. End-of-stream parsing is the source of truth.
-  function extractLiveMessage(partial) {
-    const marker = '"message":"'
-    const start  = partial.indexOf(marker)
-    if (start === -1) return null
-    let i = start + marker.length, result = ''
-    while (i < partial.length) {
-      const ch = partial[i]
-      if (ch === '\\') {
-        i++
-        if (i >= partial.length) break
-        const e = partial[i]
-        if (e === 'n')      result += '\n'
-        else if (e === 't') result += '\t'
-        else if (e === '"') result += '"'
-        else if (e === '\\') result += '\\'
-        else if (e === 'u' && i + 4 < partial.length) {
-          const hex = partial.slice(i + 1, i + 5)
-          if (/^[0-9a-fA-F]{4}$/.test(hex)) {
-            result += String.fromCharCode(parseInt(hex, 16))
-            i += 4
-          } else {
-            result += e
-          }
-        } else {
-          result += e
-        }
-        i++
-        continue
-      }
-      if (ch === '"') break
-      result += ch; i++
-    }
-    return result
+    return { message: finalMessage, actions: finalActions, serverDropped }
   }
 
   // ── action prep ────────────────────────────────────────────────────────────
@@ -293,24 +253,19 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
       if (Date.now() - lastChunkAt > WATCHDOG_MS) controller.abort()
     }, 2000)
     try {
-      const { message, actions, serverFailed, serverErrorMsg, serverDropped } = await callAPI(history, (delta) => {
+      const { message, actions, serverDropped } = await callAPI(history, (delta) => {
         lastChunkAt = Date.now()
         if (!showLive) return
+        // Deltas are already-rehydrated prose chunks — append directly.
         accumulated += delta
-        const live = extractLiveMessage(accumulated)
-        if (live !== null) { messages.value[aiIdx].content = live; scrollBottom() }
+        messages.value[aiIdx].content = accumulated
+        scrollBottom()
       }, controller.signal)
       messages.value[aiIdx].content = message || messages.value[aiIdx].content
       messages.value[aiIdx].actions = prepareActions(actions)
       if (serverDropped?.length) console.warn('[LC] server dropped actions:', serverDropped)
 
-      // Server-side lie detection (claim of action with empty resolved actions)
-      if (serverFailed) {
-        messages.value[aiIdx].failed   = true
-        messages.value[aiIdx].errorMsg = serverErrorMsg || "LC said it acted but nothing executed."
-        return { ok: false }
-      }
-      // Empty-response detection (no message AND no actions)
+      // Genuine empty-response — the model gave us nothing at all.
       if (!messages.value[aiIdx].content && (actions || []).length === 0) {
         messages.value[aiIdx].failed   = true
         messages.value[aiIdx].errorMsg = "LC didn't respond clearly."

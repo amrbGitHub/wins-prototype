@@ -25,16 +25,28 @@ function getClient() {
       'ANTHROPIC_API_KEY is not set in env. Get one from https://console.anthropic.com/ and add to backend/.env'
     )
   }
-  _client = new Anthropic({ apiKey })
+  // ANTHROPIC_BASE_URL lets us point the SDK at any Anthropic-compatible
+  // endpoint (e.g. DeepSeek's https://api.deepseek.com/anthropic). Unset →
+  // SDK uses Anthropic's default URL. Combined with ANTHROPIC_MODEL, this is
+  // how we swap providers without touching code.
+  const opts = { apiKey }
+  const baseURL = process.env.ANTHROPIC_BASE_URL
+  if (baseURL) opts.baseURL = baseURL
+  _client = new Anthropic(opts)
   return _client
 }
 
-// Async generator: yields text deltas as Claude streams its response.
-// Caller is responsible for ensuring `messages` contains only pseudonymized
-// content — we don't redact here.
+// Async generator yielding typed events as the model streams:
+//   { type: 'text', text: '<delta>' }   — prose chunks
+//   { type: 'tools', tools: [ {name, input} ] } — emitted once at end if the
+//                                                  model called any tools
+//
+// Caller is responsible for ensuring `messages` and `tools` contain only
+// pseudonymized content — we don't redact here.
 async function* claudeChatStream({
   system,
   messages,
+  tools = undefined,
   model = DEFAULT_MODEL,
   maxTokens = DEFAULT_MAX_TOKENS,
   temperature = DEFAULT_TEMPERATURE,
@@ -53,14 +65,36 @@ async function* claudeChatStream({
     temperature,
     system: systemBlocks,
     messages,
+    ...(tools ? { tools } : {}),
   })
 
+  // Tool-use blocks arrive as content_block_start (with name) followed by
+  // a stream of input_json_delta partials, then content_block_stop. We
+  // accumulate the partials and parse once the block ends.
+  const collectedTools = []
+  let currentTool = null
+  let currentJson = ''
+
   for await (const event of stream) {
-    if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-      const text = event.delta.text
-      if (text) yield text
+    if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+      currentTool = { name: event.content_block.name, input: null }
+      currentJson = ''
+    } else if (event.type === 'content_block_delta') {
+      if (event.delta?.type === 'text_delta') {
+        const text = event.delta.text
+        if (text) yield { type: 'text', text }
+      } else if (event.delta?.type === 'input_json_delta' && currentTool) {
+        currentJson += event.delta.partial_json || ''
+      }
+    } else if (event.type === 'content_block_stop' && currentTool) {
+      try { currentTool.input = JSON.parse(currentJson || '{}') } catch { currentTool.input = {} }
+      collectedTools.push(currentTool)
+      currentTool = null
+      currentJson = ''
     }
   }
+
+  if (collectedTools.length) yield { type: 'tools', tools: collectedTools }
 }
 
 // Non-streaming helper for short, deterministic tasks (e.g. the future summary

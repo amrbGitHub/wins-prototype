@@ -70,10 +70,27 @@ function encryptForUser(userId, plaintext) {
   return Buffer.concat([iv, ct, tag])
 }
 
-// AES-256-GCM decrypt. Takes the Buffer from BYTEA; returns plaintext string.
-// Throws on tag mismatch (tampering or wrong key).
-function decryptForUser(userId, buf) {
-  if (!Buffer.isBuffer(buf) || buf.length < 12 + 16) {
+// Normalize whatever Supabase / Postgres hands us back for a BYTEA column
+// into a Node Buffer. The PostgREST default is a hex-encoded string with a
+// "\x" prefix (e.g. "\x1a2b3c…"); the supabase-js client passes that string
+// through unchanged. We also defensively handle Uint8Array and base64 strings
+// for forward compatibility with future client versions.
+function toBuffer(input) {
+  if (Buffer.isBuffer(input))            return input
+  if (input instanceof Uint8Array)       return Buffer.from(input)
+  if (typeof input === 'string') {
+    if (input.startsWith('\\x'))         return Buffer.from(input.slice(2), 'hex')
+    // Fallback: assume base64. (Won't happen with default PostgREST but cheap insurance.)
+    return Buffer.from(input, 'base64')
+  }
+  throw new Error(`decryptForUser: unexpected ciphertext input type ${typeof input}`)
+}
+
+// AES-256-GCM decrypt. Accepts whatever shape Supabase returns for BYTEA;
+// see toBuffer above. Throws on tag mismatch (tampering or wrong key).
+function decryptForUser(userId, input) {
+  const buf = toBuffer(input)
+  if (buf.length < 12 + 16) {
     throw new Error('decryptForUser: ciphertext too short')
   }
   const key = deriveUserKey(userId)
