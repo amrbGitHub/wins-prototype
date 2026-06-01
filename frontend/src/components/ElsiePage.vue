@@ -4,8 +4,8 @@ import { useApi } from '../composables/useApi.js'
 import { useLcChat } from '../composables/useLcChat.js'
 import LcActionCard from './LcActionCard.vue'
 import {
-  Sparkles, Send, Trash2, Plus, RefreshCw, MessageSquare, Mic,
-  CalendarDays, MessagesSquare, PanelLeft, PanelLeftClose, AlertCircle,
+  Sparkles, Send, Trash2, Plus, RefreshCw, MessageSquare, Mic, X, Download,
+  MessagesSquare, PanelLeft, PanelLeftClose, AlertCircle, Eraser,
 } from 'lucide-vue-next'
 
 const props = defineProps({ firstName: { type: String, default: '' } })
@@ -13,9 +13,10 @@ const emit  = defineEmits(['goals-updated', 'navigate'])
 
 const { apiFetch } = useApi()
 
-// ── Conversation mode (check-in vs planner) ────────────────────────────────
-const conversationMode = ref('checkin')
-const plannerMode      = computed(() => conversationMode.value === 'planner')
+// Conversation mode tabs removed — "Plan my month" was a separate system
+// prompt for what is effectively the same chat surface, and the L&D-aware
+// check-in prompt already handles planning conversations naturally
+// ("let's plan my month" works fine without a mode switch).
 
 // ── Input mode ─────────────────────────────────────────────────────────────
 const inputMode = ref('voice')
@@ -37,30 +38,32 @@ let _lastPersistedCount = 0
 
 // ── LC chat composable ─────────────────────────────────────────────────────
 const lc = useLcChat({
-  getFirstName:   () => props.firstName,
-  getPlannerMode: () => plannerMode.value,
-  onGoalsUpdated: () => emit('goals-updated'),
-  onNavigate:     (id) => emit('navigate', id),
-  onAfterTurn:    () => persistConversationTail(),
+  getFirstName:      () => props.firstName,
+  getConversationId: () => conversationId.value,   // for gateway: link pseudonyms to this convo
+  onGoalsUpdated:    () => emit('goals-updated'),
+  onNavigate:        (id) => emit('navigate', id),
+  onAfterTurn:       () => persistConversationTail(),
 })
 
 const {
   messages, error, streaming, chatEl,
   convoStatus, convoTranscript,
   lastAiMsg, lastActions, convoStatusLabel,
-  ttsSupported, ttsLoading, ttsLoadProgress,
+  ttsSupported,
   sttSupported, sttBackend, sttLoading, sttLoadProgress,
   reset, stopAll,
   runTextGreeting, sendTextMessage,
-  runVoiceTurn, toggleConvoMic,
+  runVoiceTurn, toggleConvoMic, cancelVoiceTurn,
   retryFromMessage, clickNavigateAction,
   rehydrateActions, newId,
 } = lc
 
 const voiceCapable = computed(() => sttSupported.value && ttsSupported.value)
-const voiceModelLoading  = computed(() => ttsLoading.value || sttLoading.value)
-const voiceModelProgress = computed(() => sttLoading.value ? sttLoadProgress.value : ttsLoadProgress.value)
-const voiceModelLabel    = computed(() => sttLoading.value ? 'Loading speech recognition…' : 'Loading voice…')
+// Only Whisper (STT) has a loadable model now — ElevenLabs is server-side
+// and the browser TTS fallback is instant.
+const voiceModelLoading  = computed(() => sttLoading.value)
+const voiceModelProgress = computed(() => sttLoadProgress.value)
+const voiceModelLabel    = computed(() => 'Loading speech recognition…')
 
 // ── Text input state ───────────────────────────────────────────────────────
 const textInput = ref('')
@@ -83,12 +86,6 @@ function switchInputMode(newMode) {
   inputMode.value = newMode
 }
 
-async function switchConversationMode(newMode) {
-  if (conversationMode.value === newMode) return
-  conversationMode.value = newMode
-  await startNewChat()
-}
-
 // ── Conversation persistence ───────────────────────────────────────────────
 async function loadConversations() {
   try {
@@ -109,7 +106,7 @@ async function startNewChat() {
   stopAll()
   reset()
   conversationId.value     = null
-  conversationTitle.value  = conversationMode.value === 'planner' ? 'Plan my month' : 'New chat'
+  conversationTitle.value  = 'New chat'
   _lastPersistedCount = 0
 
   try {
@@ -117,11 +114,10 @@ async function startNewChat() {
       method: 'POST',
       body: JSON.stringify({
         title: conversationTitle.value,
-        plannerMode: plannerMode.value,
         messages: [],
       }),
     })
-    if (myGen !== _saveGen) return   // another switch happened — bail
+    if (myGen !== _saveGen) return
     conversationId.value = created.id
     await loadConversations()
   } catch (e) {
@@ -146,7 +142,6 @@ async function openConversation(id) {
 
     conversationId.value     = full.id
     conversationTitle.value  = full.title || 'Chat'
-    conversationMode.value   = full.plannerMode ? 'planner' : 'checkin'
     // Rehydrate messages — heal any stuck-pending action statuses.
     messages.value = (full.messages || []).map(m => {
       const id = m._id || newId('m')
@@ -178,6 +173,62 @@ async function deleteConversation(id, ev) {
   }
 }
 
+// Global wipe of the per-user pseudonym registry. After this, the next time
+// LC sees "James" it mints a brand-new pseudonym — Claude has zero memory
+// of any prior conversations about James (or anyone). Use sparingly; cannot
+// be undone. Endpoint mounted only when LC_GATEWAY_ENABLED.
+async function clearLcMemory() {
+  const confirmed = confirm(
+    'Clear LC\'s memory of every person, organization, and place you\'ve mentioned?\n\n' +
+    'This drops all pseudonym mappings. Past conversations stay, but LC will no longer recognize anyone from them as the "same person" going forward. Cannot be undone.'
+  )
+  if (!confirmed) return
+  try {
+    const { deleted } = await apiFetch('/api/elsie/clear-pseudonyms', { method: 'POST' })
+    alert(`Cleared ${deleted} pseudonym${deleted === 1 ? '' : 's'} from LC's memory.`)
+  } catch (e) {
+    console.error('[LC] clear pseudonyms failed:', e)
+    alert('Failed to clear LC memory — check the console.')
+  }
+}
+
+// Download the full conversation as JSON. Includes message contents, action
+// payloads, action result states, and failure annotations — everything needed
+// to debug a session without screenshots. Filename slug uses the chat title.
+async function downloadConversation(id, ev) {
+  ev?.stopPropagation()
+  try {
+    const full = await apiFetch(`/api/lc/conversations/${id}`)
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      conversation: {
+        id:        full.id,
+        title:     full.title,
+        createdAt: new Date(full.createdAt).toISOString(),
+        updatedAt: new Date(full.updatedAt).toISOString(),
+        messages:  full.messages || [],
+      },
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url  = URL.createObjectURL(blob)
+    const slug = String(full.title || 'untitled')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 50) || 'chat'
+    const date = new Date().toISOString().slice(0, 10)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `lc-chat-${slug}-${date}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    alert('Failed to download chat: ' + e.message)
+  }
+}
+
 // Persist only the NEW messages since last save. Called on turn boundaries
 // (onAfterTurn from the composable). Does nothing if no new messages.
 async function persistConversationTail() {
@@ -199,22 +250,43 @@ async function persistConversationTail() {
     if (myGen !== _saveGen || conversationId.value !== targetId) return  // user switched chats; the data still landed on the right row but don't update local bookkeeping
     _lastPersistedCount = all.length
 
-    // Update title from first user message if it's still the default
-    if (conversationTitle.value === 'New chat' || conversationTitle.value === 'Plan my month') {
-      const firstUser = all.find(m => m.role === 'user')
-      if (firstUser) {
-        const t = firstUser.content.trim().slice(0, 48) + (firstUser.content.length > 48 ? '…' : '')
-        await apiFetch(`/api/lc/conversations/${targetId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ title: t }),
-        })
-        conversationTitle.value = t
-      }
+    // Auto-title: once we have a real exchange (≥1 user msg + ≥1 assistant
+    // reply) AND the title is still the default placeholder, ask LC to
+    // generate a short topic-paraphrase. Fire-and-forget; non-blocking.
+    const userCount      = all.filter(m => m.role === 'user').length
+    const assistantCount = all.filter(m => m.role === 'assistant').length
+    const titleIsDefault = ['New chat', 'Chat', ''].includes(conversationTitle.value || '')
+    if (titleIsDefault && userCount >= 1 && assistantCount >= 1) {
+      generateAutoTitle(targetId, myGen)   // intentionally not awaited
     }
+
     // Refresh sidebar list (don't await — non-critical)
     loadConversations()
   } catch (e) {
     console.error('[LC] persist failed:', e)
+  }
+}
+
+// Background call to /auto-title. Runs once per conversation, guarded by
+// the save generation so a switched chat doesn't clobber the new title.
+let _autoTitleInFlight = false
+async function generateAutoTitle(targetId, myGen) {
+  if (_autoTitleInFlight) return
+  _autoTitleInFlight = true
+  try {
+    const updated = await apiFetch(`/api/lc/conversations/${targetId}/auto-title`, {
+      method: 'POST',
+    })
+    if (myGen !== _saveGen || conversationId.value !== targetId) return
+    if (updated?.title) {
+      conversationTitle.value = updated.title
+      loadConversations()   // refresh sidebar to show the new title
+    }
+  } catch (e) {
+    // Non-fatal — title stays as the default. Just log.
+    console.warn('[LC] auto-title failed:', e?.message || e)
+  } finally {
+    _autoTitleInFlight = false
   }
 }
 
@@ -275,20 +347,38 @@ function relTime(ts) {
           :class="conversationId === c.id ? 'bg-teal-50 ring-1 ring-teal-200' : 'hover:bg-slate-50'"
           :aria-current="conversationId === c.id ? 'true' : 'false'">
           <div class="shrink-0 mt-0.5" aria-hidden="true">
-            <CalendarDays v-if="c.plannerMode" class="h-3.5 w-3.5 text-violet-500" />
-            <Sparkles      v-else              class="h-3.5 w-3.5 text-teal-500" />
+            <Sparkles class="h-3.5 w-3.5 text-teal-500" />
           </div>
           <div class="flex-1 min-w-0">
             <p class="text-[12px] font-semibold text-slate-700 truncate">{{ c.title || 'New chat' }}</p>
             <p class="text-[10px] text-slate-400 mt-0.5">
-              {{ c.plannerMode ? 'Planner · ' : '' }}{{ relTime(c.updatedAt) }}
+              {{ relTime(c.updatedAt) }}
             </p>
           </div>
-          <button @click="deleteConversation(c.id, $event)"
-            class="shrink-0 opacity-0 group-hover:opacity-100 transition text-slate-400 hover:text-rose-500"
-            aria-label="Delete chat">
-            <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
+          <div class="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+            <button @click="downloadConversation(c.id, $event)"
+              class="text-slate-400 hover:text-cyan-600"
+              aria-label="Download chat as JSON">
+              <Download class="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+            <button @click="deleteConversation(c.id, $event)"
+              class="text-slate-400 hover:text-rose-500"
+              aria-label="Delete chat">
+              <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </div>
+        </button>
+      </div>
+
+      <!-- Settings footer: privacy controls. Wipes the per-user pseudonym
+           registry. Use when starting fresh or after a sensitive conversation
+           where memory continuity isn't worth the privacy artifact. -->
+      <div class="border-t px-3 py-3" style="border-color:rgba(0,0,0,0.06)">
+        <button @click="clearLcMemory"
+          class="w-full flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-[11px] font-semibold text-slate-600 hover:text-rose-600 hover:bg-rose-50 transition"
+          aria-label="Clear LC's memory of all people, orgs, and places">
+          <Eraser class="h-3.5 w-3.5" aria-hidden="true" />
+          Clear LC memory
         </button>
       </div>
     </aside>
@@ -327,19 +417,6 @@ function relTime(ts) {
             </div>
 
             <div class="flex items-center gap-2 flex-wrap">
-              <div class="flex overflow-hidden rounded-xl ring-1 ring-white/15 bg-white/10 p-0.5" role="tablist" aria-label="Conversation mode">
-                <button @click="switchConversationMode('checkin')" role="tab" :aria-selected="conversationMode === 'checkin'"
-                  class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-all"
-                  :class="conversationMode === 'checkin' ? 'bg-white text-slate-700 shadow-sm' : 'text-white/70 hover:text-white'">
-                  <Sparkles class="h-3 w-3" aria-hidden="true" />Check-in
-                </button>
-                <button @click="switchConversationMode('planner')" role="tab" :aria-selected="conversationMode === 'planner'"
-                  class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-all"
-                  :class="conversationMode === 'planner' ? 'bg-white text-slate-700 shadow-sm' : 'text-white/70 hover:text-white'">
-                  <CalendarDays class="h-3 w-3" aria-hidden="true" />Plan my month
-                </button>
-              </div>
-
               <div class="flex overflow-hidden rounded-lg ring-1 ring-white/15 bg-white/10 p-0.5" role="tablist" aria-label="Input mode">
                 <button @click="switchInputMode('voice')" :disabled="!voiceCapable" role="tab" :aria-selected="inputMode === 'voice'"
                   class="flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all disabled:opacity-40"
@@ -361,8 +438,7 @@ function relTime(ts) {
           </div>
 
           <p class="mt-2.5 text-[11px] text-teal-200/55">
-            <span v-if="conversationMode === 'checkin'">Tell me about your wins, progress, or how things are going — I'll log, update, and celebrate them for you.</span>
-            <span v-else>Let's set your goals for the month. Tell me what you want to focus on and I'll create them.</span>
+            Tell me about your wins, your sessions, what's going on with a learner or program — I'll log, update, and think through it with you.
           </p>
         </div>
       </div>
@@ -446,6 +522,19 @@ function relTime(ts) {
             </p>
           </div>
 
+          <!-- Hard-cancel button — visible whenever voice is doing something.
+               One-click escape hatch: aborts STT, kills any in-flight LLM
+               request, stops TTS, returns straight to idle. -->
+          <button
+            v-if="convoStatus !== 'idle'"
+            @click="cancelVoiceTurn"
+            class="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm hover:bg-slate-50 hover:border-slate-400 transition"
+            aria-label="Cancel current voice turn"
+          >
+            <X class="h-4 w-4" aria-hidden="true" />
+            Stop
+          </button>
+
           <div v-if="lastActions.length && convoStatus !== 'listening'" class="w-full flex flex-col gap-2">
             <LcActionCard v-for="(action, ai) in lastActions" :key="action._id"
               :action="action" density="roomy"
@@ -511,7 +600,7 @@ function relTime(ts) {
           <div class="mx-auto max-w-2xl flex items-end gap-3">
             <label class="sr-only" for="lc-page-input">Type your message to LC</label>
             <textarea id="lc-page-input" v-model="textInput" @keydown.enter="onTextEnter"
-              :placeholder="conversationMode === 'planner' ? 'Tell LC what you want to achieve this month…' : 'Tell LC how things are going…'"
+              placeholder="Tell LC how things are going…"
               rows="1" :disabled="streaming"
               class="input flex-1 resize-none leading-relaxed disabled:opacity-50 text-sm"
               style="min-height:44px;max-height:140px;overflow-y:auto" />

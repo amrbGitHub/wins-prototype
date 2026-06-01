@@ -16,9 +16,11 @@ app.use('/api/health',      require('./routes/health'))
 app.use('/api/entries',     require('./routes/entries'))
 app.use('/api',             require('./routes/wins'))        // /api/analyze, /api/draft, etc.
 app.use('/api/goals',       require('./routes/goals'))
+app.use('/api/programs',    require('./routes/programs'))
 app.use('/api/reflections', require('./routes/reflections'))
 app.use('/api/profile',     require('./routes/profile'))
 app.use('/api/elsie',       require('./routes/elsie'))
+app.use('/api/tts',         require('./routes/tts'))           // ElevenLabs proxy
 app.use('/api/lc/conversations', require('./routes/lc-conversations'))
 app.use('/api/dev',         require('./routes/dev'))           // testing-only: clean-slate, etc.
 

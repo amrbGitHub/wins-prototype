@@ -16,15 +16,14 @@ const {
   messages, error, streaming, chatEl,
   convoStatus, convoTranscript,
   lastAiMsg, lastActions, convoStatusLabel,
-  ttsSupported, ttsLoading, ttsLoadProgress,
+  ttsSupported,
   sttSupported, sttBackend, sttLoading, sttLoadProgress,
   reset, stopAll,
   runTextGreeting, sendTextMessage,
-  runVoiceTurn, toggleConvoMic,
+  runVoiceTurn, toggleConvoMic, cancelVoiceTurn,
   retryFromMessage, clickNavigateAction,
 } = useLcChat({
   getFirstName:   () => props.firstName,
-  getPlannerMode: () => false,
   onGoalsUpdated: () => emit('goals-updated'),
   onNavigate:     (id) => { emit('navigate', id); emit('close') },
 })
@@ -34,9 +33,11 @@ const voiceCapable = computed(() => sttSupported.value && ttsSupported.value)
 
 // Show a loading ring whenever either backend is downloading its model.
 // Whisper loads on first mic tap (Firefox), Kokoro loads on first speak.
-const voiceModelLoading  = computed(() => ttsLoading.value || sttLoading.value)
-const voiceModelProgress = computed(() => sttLoading.value ? sttLoadProgress.value : ttsLoadProgress.value)
-const voiceModelLabel    = computed(() => sttLoading.value ? 'Loading speech recognition…' : 'Loading voice…')
+// Only Whisper (STT) has a loadable model now — ElevenLabs is server-side
+// and the browser TTS fallback is instant. So progress UI reflects STT only.
+const voiceModelLoading  = computed(() => sttLoading.value)
+const voiceModelProgress = computed(() => sttLoadProgress.value)
+const voiceModelLabel    = computed(() => 'Loading speech recognition…')
 
 const textInput = ref('')
 
@@ -206,6 +207,19 @@ function onTextEnter(e) {
             Tap to start speaking
           </p>
         </div>
+
+        <!-- Hard-cancel button — visible whenever voice is doing something.
+             One-click escape hatch: aborts STT, kills any in-flight LLM
+             request, stops TTS, returns straight to idle. -->
+        <button
+          v-if="convoStatus !== 'idle'"
+          @click="cancelVoiceTurn"
+          class="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 shadow-sm hover:bg-slate-50 hover:border-slate-400 transition"
+          aria-label="Cancel current voice turn"
+        >
+          <X class="h-3.5 w-3.5" aria-hidden="true" />
+          Stop
+        </button>
 
         <div v-if="lastActions.length" class="w-full flex flex-col gap-1.5">
           <LcActionCard v-for="(action, ai) in lastActions" :key="action._id"

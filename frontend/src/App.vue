@@ -4,7 +4,7 @@ import { useAuth } from './composables/useAuth.js'
 import { useApi }  from './composables/useApi.js'
 import { thisMonthLocal } from './lib/dates.js'
 import {
-  Trophy, BookOpen, CalendarDays, Target, Brain,
+  Trophy, BookOpen, CalendarDays, Target, Brain, Layers,
   User, LogOut, Menu, X, Wifi, WifiOff, ChevronRight,
   Bell, Sparkles, Home as HomeIcon,
 } from 'lucide-vue-next'
@@ -14,6 +14,7 @@ import ElsiePage       from './components/ElsiePage.vue'
 import Celebrate       from './components/Celebrate.vue'
 import Journal         from './components/Journal.vue'
 import MyGoals         from './components/MyGoals.vue'
+import Programs        from './components/Programs.vue'
 import Reflections     from './components/Reflections.vue'
 import ReviewModal     from './components/ReviewModal.vue'
 import OnboardingModal from './components/OnboardingModal.vue'
@@ -29,6 +30,7 @@ const elsieOpen   = ref(false)   // Elsie is a persistent overlay, not a tab
 
 const tabs = [
   { id: 'home',        label: 'Home',         icon: HomeIcon,     color: 'teal'    },
+  { id: 'programs',    label: 'Programs',     icon: Layers,       color: 'cyan'    },
   { id: 'goals',       label: 'My Goals',     icon: Target,       color: 'emerald' },
   { id: 'journal',     label: 'Journal',      icon: BookOpen,     color: 'violet'  },
   { id: 'celebrate',   label: 'Celebrate',    icon: Trophy,       color: 'amber'   },
@@ -40,6 +42,7 @@ const tabColorMap = {
   violet:  { active: 'text-violet-600 bg-violet-50/80 border border-violet-200/60',   dot: 'bg-violet-400',  icon: 'text-violet-500'  },
   teal:    { active: 'text-teal-700 bg-teal-50/80 border border-teal-200/60',          dot: 'bg-teal-400',    icon: 'text-teal-600'    },
   emerald: { active: 'text-emerald-700 bg-emerald-50/80 border border-emerald-200/60', dot: 'bg-emerald-400', icon: 'text-emerald-600' },
+  cyan:    { active: 'text-cyan-700 bg-cyan-50/80 border border-cyan-200/60',          dot: 'bg-cyan-400',    icon: 'text-cyan-600'    },
   rose:    { active: 'text-rose-600 bg-rose-50/80 border border-rose-200/60',          dot: 'bg-rose-400',    icon: 'text-rose-500'    },
 }
 
@@ -538,6 +541,7 @@ onUnmounted(() => clearInterval(_statusTimer))
         :key="'goals-' + myGoalsKey"
         @navigate="navigate"
       />
+      <Programs        v-else-if="currentView === 'programs'" />
       <Reflections     v-else-if="currentView === 'reflections'" />
       <UserProfile
         v-else-if="currentView === 'profile'"

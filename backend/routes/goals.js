@@ -6,7 +6,8 @@ const { dbGoalToShape, GOAL_STATUSES, normaliseGoalStatus } = require('../lib/sh
 
 const router = Router()
 
-// GET /api/goals — fetch goals, optional ?month=YYYY-MM filter
+// GET /api/goals — fetch goals.
+// Optional filters: ?month=YYYY-MM, ?programId=<uuid>, ?programId=__none__ (untagged)
 router.get('/', verifyToken, async (req, res) => {
   try {
     let query = supabase
@@ -15,6 +16,8 @@ router.get('/', verifyToken, async (req, res) => {
       .eq('user_id', req.userId)
       .order('created_at', { ascending: true })
     if (req.query.month) query = query.eq('month', req.query.month)
+    if (req.query.programId === '__none__') query = query.is('program_id', null)
+    else if (req.query.programId)           query = query.eq('program_id', req.query.programId)
     const { data, error } = await query
     if (error) throw error
     res.json(data.map(dbGoalToShape))
@@ -26,7 +29,7 @@ router.get('/', verifyToken, async (req, res) => {
 // POST /api/goals — create a goal manually
 router.post('/', verifyToken, async (req, res) => {
   try {
-    const { title, description, successCriteria, targetDate, month: bodyMonth } = req.body || {}
+    const { title, description, successCriteria, targetDate, month: bodyMonth, programId } = req.body || {}
     if (!title?.trim()) return res.status(400).json({ error: 'title is required' })
 
     // Default to UTC month if client didn't supply one. The frontend always supplies
@@ -45,6 +48,7 @@ router.post('/', verifyToken, async (req, res) => {
         status:           'active',
         progress:         0,
         steps:            [],
+        program_id:       programId || null,
       })
       .select()
       .single()
@@ -205,10 +209,10 @@ router.delete('/:id', verifyToken, async (req, res) => {
   }
 })
 
-// PATCH /api/goals/:id — update title, description, status, progress, targetDate, or steps
+// PATCH /api/goals/:id — update title, description, status, progress, targetDate, steps, programId
 router.patch('/:id', verifyToken, async (req, res) => {
   try {
-    const { title, description, status, progress, targetDate, steps } = req.body || {}
+    const { title, description, status, progress, targetDate, steps, programId } = req.body || {}
 
     const patch = {}
     if (title       !== undefined) patch.title        = (title || '').trim() || null
@@ -226,6 +230,7 @@ router.patch('/:id', verifyToken, async (req, res) => {
     if (progress    !== undefined) patch.progress     = Math.max(0, Math.min(100, Number(progress)))
     if (targetDate  !== undefined) patch.target_date  = targetDate || null
     if (steps       !== undefined) patch.steps        = steps
+    if (programId   !== undefined) patch.program_id   = programId || null    // null = untag
 
     if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to update' })
 

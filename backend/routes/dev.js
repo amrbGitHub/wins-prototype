@@ -13,11 +13,13 @@ router.use((req, res, next) => {
 })
 
 // POST /api/dev/clean-slate — wipe all user data EXCEPT auth + profile.
-// Deletes: goals, journal_entries, reflections, lc_conversations.
+// Deletes: goals, journal_entries, reflections, lc_conversations, programs.
 // Used for testing only. Auth-scoped (only the calling user's data is touched).
+// Order matters: programs last so ON DELETE SET NULL on child rows doesn't
+// have to fire (children are already gone).
 router.post('/clean-slate', verifyToken, async (req, res) => {
   try {
-    const tables = ['goals', 'journal_entries', 'reflections', 'lc_conversations']
+    const tables = ['goals', 'journal_entries', 'reflections', 'lc_conversations', 'programs']
     const results = {}
 
     for (const table of tables) {

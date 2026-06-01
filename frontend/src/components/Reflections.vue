@@ -1,21 +1,27 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useApi } from '../composables/useApi.js'
+import ProgramPicker from './ProgramPicker.vue'
 import { Brain, Lightbulb, ChevronDown, Calendar, RefreshCw, Target } from 'lucide-vue-next'
 
 const { apiFetch } = useApi()
 
-const reflections = ref([])
-const loading     = ref(true)
-const error       = ref('')
+const reflections     = ref([])
+const loading         = ref(true)
+const error           = ref('')
+const filterProgramId = ref(null)
 
 onMounted(loadReflections)
+watch(filterProgramId, loadReflections)
 
 async function loadReflections() {
   loading.value = true
   error.value   = ''
   try {
-    reflections.value = await apiFetch('/api/reflections')
+    const url = filterProgramId.value
+      ? `/api/reflections?programId=${encodeURIComponent(filterProgramId.value)}`
+      : '/api/reflections'
+    reflections.value = await apiFetch(url)
   } catch (e) {
     error.value = e.message
     reflections.value = []
@@ -75,6 +81,11 @@ function toggle(id) {
     </div>
 
     <div class="mx-auto max-w-4xl space-y-5 px-4 py-8">
+
+      <!-- Program filter -->
+      <div class="flex items-center justify-end">
+        <ProgramPicker v-model="filterProgramId" size="sm" placeholder="All programs" :include-none-filter="true" />
+      </div>
 
       <!-- Error -->
       <div v-if="error" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ error }}</div>

@@ -1,9 +1,10 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useSpeech } from '../composables/useSpeech.js'
 import { useApi } from '../composables/useApi.js'
 import { todayLocal } from '../lib/dates.js'
 import MicButton from './MicButton.vue'
+import ProgramPicker from './ProgramPicker.vue'
 import { BookOpen, Send, Trash2, Star, ChevronDown, Sparkles } from 'lucide-vue-next'
 
 const { apiFetch } = useApi()
@@ -15,12 +16,16 @@ const { isSupported: speechSupported, isListening, toggleListening } = useSpeech
 const entryText = ref('')
 const entryDate = ref(today())
 const entryType = ref('daily')
+const entryProgramId = ref(null)   // optional tag
 const loading = ref(false)
 const errorMsg = ref('')
 
 // --- Entries ---
 const entries = ref([])
 const expandedWins = ref({}) // entryId -> winId or null
+
+// --- Filter (Program) ---
+const filterProgramId = ref(null)   // null = all, '__none__' = untagged, '<uuid>' = specific
 
 function today() {
   return todayLocal()
@@ -29,11 +34,17 @@ function today() {
 
 async function loadEntries() {
   try {
-    entries.value = await apiFetch('/api/entries')
+    const url = filterProgramId.value
+      ? `/api/entries?programId=${encodeURIComponent(filterProgramId.value)}`
+      : '/api/entries'
+    entries.value = await apiFetch(url)
   } catch {
     entries.value = []
   }
 }
+
+// Reload when filter changes
+watch(filterProgramId, loadEntries)
 
 onMounted(loadEntries)
 
@@ -59,14 +70,15 @@ async function saveAndAnalyze() {
     newEntry = await apiFetch('/api/entries', {
       method: 'POST',
       body: JSON.stringify({
-        date: entryDate.value,
-        type: entryType.value,
-        text: entryText.value.trim(),
+        date:      entryDate.value,
+        type:      entryType.value,
+        text:      entryText.value.trim(),
+        programId: entryProgramId.value || null,
       }),
     })
     entries.value.unshift(newEntry)
 
-    // Reset form
+    // Reset form (keep programId — most users post multiple entries to the same program)
     entryText.value = ''
     entryDate.value = today()
     entryType.value = 'daily'
@@ -234,6 +246,12 @@ const typePillClass = {
             </p>
           </div>
 
+          <!-- Optional: tag this entry to a program -->
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <ProgramPicker v-model="entryProgramId" size="sm" placeholder="No program (optional)" />
+            <span class="text-[11px] text-slate-400">Tag this entry to a program if it's about one</span>
+          </div>
+
           <!-- Error -->
           <div v-if="errorMsg" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             <span class="font-bold">Error:</span> {{ errorMsg }}
@@ -254,11 +272,14 @@ const typePillClass = {
       </div>
 
       <!-- ── Entry History ──────────────────────────────────────────────────────── -->
-      <div v-if="sortedEntries.length" class="space-y-4">
-        <h2 class="flex items-center gap-2 px-1 text-sm font-bold uppercase tracking-wider text-slate-500">
-          <BookOpen class="h-4 w-4" />
-          Journal history
-        </h2>
+      <div v-if="sortedEntries.length || filterProgramId" class="space-y-4">
+        <div class="flex items-center justify-between gap-3 flex-wrap px-1">
+          <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-slate-500">
+            <BookOpen class="h-4 w-4" aria-hidden="true" />
+            Journal history
+          </h2>
+          <ProgramPicker v-model="filterProgramId" size="sm" placeholder="All programs" :include-none-filter="true" />
+        </div>
 
         <div
           v-for="entry in sortedEntries"
