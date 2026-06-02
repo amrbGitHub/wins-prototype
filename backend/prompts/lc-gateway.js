@@ -166,6 +166,22 @@ WHEN TO ACT:
 `.trim()
 
 // ── System prompt builder ───────────────────────────────────────────────────
+//
+// Returns the system prompt as TWO content blocks so the provider can cache
+// the static prefix while processing the dynamic context fresh each turn.
+//
+//   Block 1 (STATIC, ~3500 tokens, cache_control: ephemeral)
+//     LC_VOICE + LD_REFERENCE + PSEUDONYM_NOTE + TASK_PLAYBOOKS + boilerplate.
+//     Stable across every turn in a session — gets cached.
+//
+//   Block 2 (DYNAMIC, ~300-500 tokens, no caching)
+//     today's date, active goals, active programs, last reflection,
+//     per-pseudonym summaries. Changes every turn.
+//
+// Without this split, any goal-progress shift, summary update, or date
+// rollover would invalidate the cache for the entire 4000-token system
+// prompt — pushing ~50x cost per turn. With the split, only the small
+// dynamic block re-processes; the static prefix stays cache-hit after turn 1.
 function buildGatewaySystem({
   nameStr,
   goalsCtx,
@@ -174,7 +190,7 @@ function buildGatewaySystem({
   todayCtx,
   personSummariesBlock = '',
 }) {
-  return `\
+  const staticBlock = `\
 ${LC_VOICE.replaceAll('${nameStr}', nameStr)}
 
 ${LD_REFERENCE}
@@ -187,8 +203,9 @@ CURRENT MODE: CHECK-IN
 You're the L&D thinking partner ${nameStr} talks to about their work. You
 also manage this app for them — when they explicitly ask you to create,
 update, delete, or log something, use the available tools. Otherwise,
-your value is the quality of the thinking, not the management of records.
+your value is the quality of the thinking, not the management of records.`
 
+  const dynamicBlock = `\
 USER CONTEXT:
 ${todayCtx}
 
@@ -202,6 +219,11 @@ ${reflectionCtx}
 
 WHAT YOU KNOW ABOUT THE PEOPLE / ORGS / PLACES IN THIS CONVERSATION:
 ${personSummariesBlock || '  (no entities discussed in this conversation yet)'}`
+
+  return [
+    { type: 'text', text: staticBlock, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: dynamicBlock },
+  ]
 }
 
 module.exports = { buildGatewaySystem, LC_VOICE, LD_REFERENCE, TASK_PLAYBOOKS, PSEUDONYM_NOTE }
