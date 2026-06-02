@@ -28,6 +28,7 @@ const {
   updateSummaries,
 } = require('../lib/summaries')
 const { LC_TOOLS } = require('../lib/tools')
+const { logMemory } = require('../lib/memory')
 
 const router = Router()
 
@@ -139,6 +140,8 @@ router.post('/clear-pseudonyms', verifyToken, async (req, res) => {
 async function handleTurn({ res, userId, conversationId, chatMessages, skipNames, goals, programs, systemArgs }) {
   const HOLD_BACK = 32   // > longest possible pseudonym; prevents mid-pseudonym stream splits
 
+  logMemory('turn:start')
+
   // 1. Redact every message using entity hints supplied by the frontend NER.
   // Both user and prior-assistant messages get hints — assistant turns were
   // rehydrated to real names before display, so they contain PII on the way
@@ -238,6 +241,8 @@ async function handleTurn({ res, userId, conversationId, chatMessages, skipNames
   // 7. Build system prompt + stream the response.
   const system = buildGatewaySystem({ ...systemArgs, personSummariesBlock: personBlock })
 
+  logMemory('before-llm')
+
   let buffer = ''
   let flushedUpTo = 0
   let fullPseudoText = ''
@@ -286,6 +291,8 @@ async function handleTurn({ res, userId, conversationId, chatMessages, skipNames
   } catch (e) {
     console.warn('[gateway] summary update failed (non-fatal):', e.message)
   }
+
+  logMemory('turn:end')
 
   // 10. Done event with the full rehydrated message + resolved actions.
   const fullMessage = rehydrateText(fullPseudoText, rehydrationMappings)
