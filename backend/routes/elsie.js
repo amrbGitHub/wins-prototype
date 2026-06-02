@@ -19,7 +19,7 @@ const { dbGoalToShape, dbProgramToShape } = require('../lib/shapes')
 const { resolveActions } = require('../lib/actionResolver')
 const { buildGatewaySystem } = require('../prompts/lc-gateway')
 const {
-  redactText, canonicalizeMappings, applyCanonicals,
+  redactFromHints, canonicalizeMappings, applyCanonicals,
   rehydrateText, rehydrateAction,
 } = require('../lib/redactor')
 const { claudeChatStream } = require('../lib/claude')
@@ -110,12 +110,13 @@ router.post('/chat', verifyToken, async (req, res) => {
   }
 })
 
-// Preview endpoint — POST text, see the redactor's output without calling Claude.
-// Useful for tuning the corpus and crafting test prompts.
+// Preview endpoint — POST text + entity hints, see the redactor's output
+// without calling Claude. Hints come from the frontend NER; this just exercises
+// the pseudonym minting + string-slicing path. Useful for testing edge cases.
 router.post('/preview-redaction', verifyToken, async (req, res) => {
   try {
-    const { text = '' } = req.body || {}
-    const result = await redactText(String(text))
+    const { text = '', entityHints = [] } = req.body || {}
+    const result = redactFromHints(String(text), entityHints)
     res.json(result)
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
@@ -138,14 +139,22 @@ router.post('/clear-pseudonyms', verifyToken, async (req, res) => {
 async function handleTurn({ res, userId, conversationId, chatMessages, skipNames, goals, programs, systemArgs }) {
   const HOLD_BACK = 32   // > longest possible pseudonym; prevents mid-pseudonym stream splits
 
-  // 1. Redact every message. Both user and prior-assistant messages — assistant
-  // turns were rehydrated to real names before being shown to the user, so they
-  // contain PII on the way back to us.
-  const perMessage = []
-  for (const m of chatMessages) {
-    const { redactedText, mappings } = await redactText(m.content || '', { skipNames })
-    perMessage.push({ role: m.role, redactedText, mappings })
-  }
+  // 1. Redact every message using entity hints supplied by the frontend NER.
+  // Both user and prior-assistant messages get hints — assistant turns were
+  // rehydrated to real names before display, so they contain PII on the way
+  // back. Frontend re-runs NER on the assistant message after streaming
+  // completes and stores the hints on the message object.
+  //
+  // If a message arrives without hints (legacy conversation predating this
+  // refactor, or a buggy client), we treat it as having no PII rather than
+  // loading a server-side model. The skipNames pass still happens. This is
+  // a fail-open posture for the legacy case; the cybersec test corpus
+  // confirms the frontend NER stays in lockstep with what was previously
+  // server-side.
+  const perMessage = chatMessages.map(m =>
+    ({ role: m.role,
+       ...redactFromHints(m.content || '', m.entityHints || [], { skipNames }) })
+  )
 
   // 2. Canonicalize all pseudonyms via the per-user registry (persistent IDs).
   const allMappings = perMessage.flatMap(p => p.mappings)
