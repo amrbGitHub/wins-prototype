@@ -22,7 +22,7 @@ app.use('/api/profile',     require('./routes/profile'))
 app.use('/api/elsie',       require('./routes/elsie'))
 app.use('/api/tts',         require('./routes/tts'))           // ElevenLabs proxy
 app.use('/api/lc/conversations', require('./routes/lc-conversations'))
-app.use('/api/dev',         require('./routes/dev'))           // testing-only: clean-slate, etc.
+app.use('/api/account',     require('./routes/account'))       // user-initiated account ops: clean-slate
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {

@@ -10,7 +10,8 @@ async function verifyToken(req, res, next) {
     if (error || !user) {
       return res.status(401).json({ error: 'Invalid or expired token', detail: error?.message })
     }
-    req.userId = user.id
+    req.userId    = user.id
+    req.userEmail = user.email
     next()
   } catch (err) {
     console.error('verifyToken error:', err.message)

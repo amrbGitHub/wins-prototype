@@ -108,25 +108,43 @@ const displayName = computed(() => {
   return [firstName, lastName].filter(Boolean).join(' ') || props.profile.username || user.value?.email
 })
 
-// ── Clean slate (TESTING ONLY) ────────────────────────────────────────────────
-const cleaning      = ref(false)
-const cleanResult   = ref(null)
-const cleanError    = ref('')
+// ── Clean slate (user-initiated data wipe) ───────────────────────────────────
+// Two-step: confirm intent, then re-enter password. Password re-entry is the
+// human-verification step — a stolen session token alone can't trigger this.
+const cleaning           = ref(false)
+const cleanResult        = ref(null)
+const cleanError         = ref('')
+const cleanConfirming    = ref(false)   // password-entry panel visible?
+const cleanPassword      = ref('')
 
-async function cleanSlate() {
-  const ok = window.confirm(
-    'CLEAN SLATE — wipe ALL goals, journal entries, reflections, and chat history?\n\n' +
-    'Your profile and login stay intact. This cannot be undone.\n\n' +
-    'Continue?'
-  )
-  if (!ok) return
+function startCleanSlate() {
+  cleanError.value      = ''
+  cleanResult.value     = null
+  cleanPassword.value   = ''
+  cleanConfirming.value = true
+}
 
-  cleaning.value    = true
-  cleanError.value  = ''
-  cleanResult.value = null
+function cancelCleanSlate() {
+  cleanConfirming.value = false
+  cleanPassword.value   = ''
+  cleanError.value      = ''
+}
+
+async function confirmCleanSlate() {
+  if (!cleanPassword.value) {
+    cleanError.value = 'Enter your password to confirm.'
+    return
+  }
+  cleaning.value   = true
+  cleanError.value = ''
   try {
-    const res = await apiFetch('/api/dev/clean-slate', { method: 'POST' })
-    cleanResult.value = res.results
+    const res = await apiFetch('/api/account/clean-slate', {
+      method: 'POST',
+      body: JSON.stringify({ password: cleanPassword.value }),
+    })
+    cleanResult.value     = res.results
+    cleanConfirming.value = false
+    cleanPassword.value   = ''
     // Force-refresh stats + tell the rest of the app to reload
     await loadStats()
     emit('updated', props.profile)   // bumps key in App.vue
@@ -329,31 +347,71 @@ async function cleanSlate() {
         </form>
       </div>
 
-      <!-- ── Danger zone (testing only) ──────────────────────────────────────── -->
+      <!-- ── Danger zone — erase all data for this account ───────────────────── -->
       <div class="rounded-3xl border-2 border-dashed border-rose-200 bg-rose-50/30 p-6 mt-6">
         <div class="flex items-start gap-3 mb-3">
           <div class="shrink-0 h-9 w-9 rounded-xl bg-rose-100 flex items-center justify-center">
             <AlertTriangle class="h-5 w-5 text-rose-600" />
           </div>
           <div class="flex-1 min-w-0">
-            <h3 class="text-sm font-bold text-rose-700">Danger zone — testing only</h3>
+            <h3 class="text-sm font-bold text-rose-700">Danger zone — erase my data</h3>
             <p class="text-xs text-rose-600/80 mt-0.5 leading-relaxed">
-              Wipes ALL goals, journal entries, reflections, and LC chat history for this account.
-              Your profile and login stay intact. This cannot be undone.
+              Wipes every goal, journal entry, reflection, program, LC chat history,
+              and the encrypted name registry LC uses for memory.
+              Your login and profile stay intact. This cannot be undone.
             </p>
           </div>
         </div>
 
+        <!-- Step 1: trigger button (hidden once the confirm panel is open) -->
         <button
+          v-if="!cleanConfirming"
           type="button"
-          @click="cleanSlate"
-          :disabled="cleaning"
-          class="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-50"
+          @click="startCleanSlate"
+          class="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-rose-700"
         >
-          <span v-if="cleaning" class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
-          <Trash2 v-else class="h-4 w-4" />
-          {{ cleaning ? 'Wiping…' : 'Clean slate' }}
+          <Trash2 class="h-4 w-4" />
+          Erase my data
         </button>
+
+        <!-- Step 2: password re-entry to prove a human is behind the click -->
+        <form
+          v-else
+          @submit.prevent="confirmCleanSlate"
+          class="mt-1 rounded-xl bg-white border border-rose-300 p-4 space-y-3"
+        >
+          <p class="text-xs text-rose-700">
+            Re-enter your password to confirm. This protects against accidental
+            clicks and stolen-session deletions.
+          </p>
+          <input
+            v-model="cleanPassword"
+            type="password"
+            autocomplete="current-password"
+            placeholder="Account password"
+            :disabled="cleaning"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
+          />
+          <div class="flex items-center gap-2">
+            <button
+              type="submit"
+              :disabled="cleaning || !cleanPassword"
+              class="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-50"
+            >
+              <span v-if="cleaning" class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
+              <Trash2 v-else class="h-4 w-4" />
+              {{ cleaning ? 'Wiping…' : 'Confirm erase' }}
+            </button>
+            <button
+              type="button"
+              @click="cancelCleanSlate"
+              :disabled="cleaning"
+              class="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
 
         <!-- Result -->
         <div v-if="cleanResult" class="mt-3 rounded-xl bg-white border border-rose-200 px-4 py-3 text-xs">
