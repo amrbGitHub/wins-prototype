@@ -48,7 +48,7 @@ const lc = useLcChat({
 const {
   messages, error, streaming, chatEl,
   convoStatus, convoTranscript,
-  lastAiMsg, lastActions, convoStatusLabel,
+  lastAiMsg, lastActions, convoStatusLabel, thinkingVerb,
   ttsSupported,
   sttSupported, sttBackend, sttLoading, sttLoadProgress,
   reset, stopAll,
@@ -566,8 +566,9 @@ function relTime(ts) {
                 </div>
                 <div class="flex flex-col gap-2 flex-1 min-w-0">
                   <div v-if="streaming && msgIdx === messages.length - 1 && !msg.content"
-                       class="bubble-ai inline-flex items-center gap-1.5 w-fit text-xs">
+                       class="bubble-ai inline-flex items-center gap-2 w-fit text-xs">
                     <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
+                    <span class="text-slate-500 italic transition-opacity duration-300">{{ thinkingVerb }}</span>
                   </div>
                   <div v-else-if="msg.content" class="bubble-ai whitespace-pre-wrap text-sm">{{ msg.content }}</div>
 

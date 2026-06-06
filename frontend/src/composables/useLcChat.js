@@ -12,7 +12,7 @@
 //   - chat persistence (each consumer wires its own save policy)
 //   - text input ref / send button / mic orb (presentation only)
 
-import { ref, computed, nextTick, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useApi }   from './useApi.js'
 import { useTTS }   from './useTTS.js'
 import { useSTT }   from './useSTT.js'
@@ -124,10 +124,44 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
     }
     return []
   })
+  // ── thinking verb (Claude-style cycling status) ────────────────────────────
+  // Rotates an LC-flavored verb while a request is in flight, purely cosmetic.
+  // The phases under the hood are real (NER → backend redact → DeepSeek →
+  // rehydrate) but the LLM call dominates the wait, so we just cycle for vibes
+  // rather than try to map verb to phase.
+  const THINKING_VERBS = [
+    'Thinking it through…',
+    'Choosing the right words…',
+    'Checking what I know…',
+    'Putting words together…',
+    'Considering your situation…',
+    'Reflecting on what you shared…',
+  ]
+  const thinkingVerb = ref(THINKING_VERBS[0])
+  let thinkingTimer = null
+  function pickThinkingVerb() {
+    const next = THINKING_VERBS[Math.floor(Math.random() * THINKING_VERBS.length)]
+    thinkingVerb.value = next === thinkingVerb.value
+      ? THINKING_VERBS[(THINKING_VERBS.indexOf(next) + 1) % THINKING_VERBS.length]
+      : next
+  }
+  function startThinkingCycle() {
+    if (thinkingTimer) return
+    pickThinkingVerb()
+    thinkingTimer = setInterval(pickThinkingVerb, 2200)
+  }
+  function stopThinkingCycle() {
+    if (!thinkingTimer) return
+    clearInterval(thinkingTimer)
+    thinkingTimer = null
+  }
+  const isThinking = computed(() => streaming.value || convoStatus.value === 'processing')
+  watch(isThinking, on => { on ? startThinkingCycle() : stopThinkingCycle() })
+
   const convoStatusLabel = computed(() => ({
     idle:       '',
     listening:  'Listening…',
-    processing: 'Thinking…',
+    processing: thinkingVerb.value,
     speaking:   'Speaking…',
   }[convoStatus.value]))
 
@@ -605,6 +639,7 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
   function stopAll() {
     tts.stop()
     stopConvoRecognition(false)
+    stopThinkingCycle()
   }
   onUnmounted(stopAll)
 
@@ -621,7 +656,7 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
     messages, error, streaming, chatEl,
     convoStatus, convoTranscript,
     // derived
-    lastAiMsg, lastActions, convoStatusLabel,
+    lastAiMsg, lastActions, convoStatusLabel, thinkingVerb,
     // tts passthrough (read-only) — Kokoro tier removed, so no load progress
     // to expose. Components fall back to the browser TTS instantly if
     // ElevenLabs is unavailable.
