@@ -1,44 +1,23 @@
-// redactor — PII detection + pseudonymization gateway (v1)
+// redactor — PII pseudonymization + canonicalization gateway.
 //
-// Strategy: run a local BERT-NER model over the user's text, find entities
-// (people, orgs, locations), replace each with a stable pseudonym. The
-// pseudonyms are session-local for now — task #3 will swap in the persistent,
-// per-user registry backed by Supabase + AES-GCM encryption.
+// Entity DETECTION runs on the frontend (frontend/src/lib/redactor.js) — the
+// browser loads the BERT-NER model and emits entity hints per message. This
+// backend module no longer loads any ML model. The 400MB+ memory footprint
+// the NER pipeline used to add to every Render instance is gone.
 //
-// Why BERT-NER and not GLiNER: the npm `gliner` package is alpha and depends
-// on outdated transformers v2. `@huggingface/transformers` v3 (already in the
-// frontend) is Node-native and well-supported. We can swap in GLiNER ONNX
-// weights through this same library later if we need custom entity labels.
-//
-// The output shape is the contract every downstream piece depends on:
-//   { redactedText, mappings: [{ real, pseudonym, type, score, start, end }] }
-// rehydrator and the Claude orchestrator both consume this exact shape.
+// What stays here:
+//   - redactFromHints(): pure string operation that turns entity hints into a
+//     pseudonymized text + mapping payload. Mints fresh session-local
+//     pseudonyms; canonicalization against the registry happens after.
+//   - canonicalizeMappings(): per-user encrypted registry lookup. Stable
+//     pseudonyms across conversations.
+//   - applyCanonicals(): rewrites redacted text to use canonical pseudonyms.
+//   - rehydrateText() / rehydrateAction(): pseudonyms → real names for the
+//     user-visible response and any action payloads.
 
 const crypto = require('node:crypto')
 const { supabase } = require('../config')
 const { hashForUser, encryptForUser } = require('./crypto')
-
-// Lazy-init the pipeline. Model is ~110MB on first download, cached locally
-// thereafter under ~/.cache/huggingface. We init on first call, not at module
-// load, so backend boot isn't blocked by the download.
-let _pipelinePromise = null
-
-async function getPipeline() {
-  if (_pipelinePromise) return _pipelinePromise
-  _pipelinePromise = (async () => {
-    const { pipeline } = await import('@huggingface/transformers')
-    return pipeline('token-classification', 'Xenova/bert-base-NER')
-  })()
-  return _pipelinePromise
-}
-
-// BERT-NER entity_group → our internal type. We drop MISC as it's too noisy
-// for redaction (matches common nouns, dates, generic terms).
-const TYPE_MAP = {
-  PER:  'PERSON',
-  ORG:  'ORG',
-  LOC:  'LOCATION',
-}
 
 // Pseudonym format: TypeShort_XXXX where XXXX is 4 random hex chars.
 // Chosen to be (a) obviously fake, (b) short enough that Claude won't mangle
@@ -54,148 +33,74 @@ function mintPseudonym(type) {
   return `${TYPE_PREFIX[type] || 'Ent'}_${id}`
 }
 
-// Confidence threshold below which we skip the entity, per type. Tuned from
-// false-positive AND false-negative cases:
-//   - PERSON: ambiguous-but-real names (Jordan, Phoenix) score 0.75–0.85.
-//     We need high recall here because missing a name = real PII leak.
-//     The DOMAIN_STOPWORDS list catches the obvious false positives
-//     (Kirkpatrick, Bloom, etc.) so we can afford the lower threshold.
-//   - ORG / LOCATION: keep stricter — false positives are noisy but not
-//     privacy-critical, and BERT is more confident on these when right.
-const MIN_SCORE = {
-  PERSON:   0.60,
-  ORG:      0.80,
-  LOCATION: 0.80,
+// Validate the hint payload coming in from the frontend. Frontend NER could
+// in theory be tampered with by a malicious client, so we don't trust it
+// blindly — but the worst a bad hint can do is produce nonsense pseudonyms
+// or fail to redact something. Real PII protection still relies on the
+// frontend doing its job; backend's job is to be deterministic and not crash.
+function isValidHint(h, textLength) {
+  return h
+      && typeof h.real === 'string' && h.real.length > 0
+      && typeof h.start === 'number' && Number.isInteger(h.start) && h.start >= 0
+      && typeof h.end   === 'number' && Number.isInteger(h.end)   && h.end > h.start && h.end <= textLength
+      && (h.type === 'PERSON' || h.type === 'ORG' || h.type === 'LOCATION')
 }
 
-// Domain stopwords — words BERT thinks are person/org/location names but in
-// L&D context refer to frameworks, theorists, or methodologies. Even at 0.99
-// confidence, these get suppressed. Lowercased for case-insensitive match.
-// Extend freely; this is the cheapest way to fix domain false-positives.
-const DOMAIN_STOPWORDS = new Set([
-  // Learning-science theorists referenced by surname
-  'bloom', 'kirkpatrick', 'phillips', 'knowles', 'ebbinghaus', 'vygotsky',
-  'piaget', 'maslow', 'skinner', 'pavlov', 'gagne', 'merrill', 'mager',
-  'mosher', 'gottfredson', 'wiggins', 'mctighe', 'pareto', 'dewey', 'bandura',
-  // Frameworks / methodologies often capitalized like proper nouns
-  'addie', 'sam', 'agile', 'lean', 'sbi',
-])
-
-// Detect PII and return mappings. Optionally pass `skipNames` — case-insensitive
-// list of names that must NOT be redacted even if NER tags them. The primary
-// use is the user's OWN first/full name: they're not PII to themselves, Claude
-// already knows them via the system prompt, and pseudonymizing them across
-// every assistant greeting ("Hey Amro!") clutters the registry with a row
-// that represents the user themselves.
-async function redactText(text, { skipNames = [] } = {}) {
+// Turn frontend entity hints into the same shape the old in-process NER
+// produced: { redactedText, mappings: [{real, pseudonym, type, start, end}] }.
+//
+// Pure function — no model load, no network call, no async. Just sorts hints
+// by start index, mints a fresh pseudonym per unique (type, lowercased-real),
+// and does right-to-left string slicing.
+//
+// `skipNames` is honoured server-side too (defensive — frontend should also
+// pre-filter, but if a hint slips through for the user's own name, drop it
+// here so the registry stays clean).
+function redactFromHints(text, hints, { skipNames = [] } = {}) {
   if (!text || typeof text !== 'string') {
     return { redactedText: text || '', mappings: [] }
   }
+  if (!Array.isArray(hints) || hints.length === 0) {
+    return { redactedText: text, mappings: [] }
+  }
+
   const skipSet = new Set(
     skipNames.filter(Boolean).map(n => String(n).toLowerCase().trim())
   )
 
-  const ner = await getPipeline()
+  // Sort by start ascending so dedup happens in document order, then we'll
+  // do the actual string replacement right-to-left.
+  const valid = hints
+    .filter(h => isValidHint(h, text.length))
+    .filter(h => !skipSet.has(h.real.toLowerCase()))
+    .filter(h => text.slice(h.start, h.end) === h.real)   // hint must still match text
+    .sort((a, b) => a.start - b.start)
 
-  // We do our own aggregation instead of relying on aggregation_strategy:'simple'.
-  // The transformers.js v3 implementation has bugs with BERT subword pieces
-  // (e.g. it splits "Acme Corp" into "A" + "##cme Corp" instead of merging).
-  // Walking raw tokens lets us handle the BIO scheme and ## continuations
-  // correctly, and gives us per-token scores to average for confidence.
-  const raw = await ner(text)
-
-  // Group raw tokens into entity spans. A span starts at any B-XYZ (or an
-  // I-XYZ with no preceding span — defensive). It continues through I-XYZ
-  // tokens of the same type, OR through subword continuation tokens (## prefix
-  // OR an out-of-place B-XYZ that's clearly a continuation of the same word
-  // because BERT-NER's BIO labelling isn't 100% strict across subwords).
-  const groups = []
-  let current = null
-  for (const t of raw) {
-    if (!t.entity || t.entity === 'O') { current = null; continue }
-    const [bio, type] = t.entity.split('-')   // e.g. "B-PER" → ["B", "PER"]
-    const isSubword = t.word.startsWith('##')
-    const sameType  = current && current.type === type
-    const continues = sameType && (bio === 'I' || isSubword)
-    if (continues) {
-      current.tokens.push(t)
-    } else {
-      current = { type, tokens: [t] }
-      groups.push(current)
-    }
-  }
-
-  // For each group: filter by mapped type, average score across subwords,
-  // reconstruct the entity word (strip ##, add spaces between non-continuation
-  // tokens), then locate the word in the source text to recover char offsets.
-  const entities = []
-  let cursor = 0
-  for (const g of groups) {
-    const mappedType = TYPE_MAP[g.type]
-    if (!mappedType) continue
-    const avgScore = g.tokens.reduce((s, t) => s + t.score, 0) / g.tokens.length
-    if (avgScore < MIN_SCORE[mappedType]) continue
-
-    // Reconstruct: "A" + "##c" + "##me" + "Corp" → "Acme Corp"
-    let word = ''
-    for (const t of g.tokens) {
-      if (t.word.startsWith('##')) word += t.word.slice(2)
-      else word += (word ? ' ' : '') + t.word
-    }
-    if (!word) continue
-
-    let start = text.indexOf(word, cursor)
-    if (start < 0) continue  // Couldn't locate (rare punctuation case) — skip.
-    let end = start + word.length
-
-    // Word-boundary extension. BERT sometimes tags only the leading subword
-    // of a name and silently drops the rest (e.g. "Hey Amro!" → only "Am"
-    // tagged as B-PER, "##ro" dropped as O). Without this fix the redactor
-    // captures "Am" alone, leaving "Hey Person_XXXXro!" — a leak AND broken
-    // text. Extend the span rightward over any continuing letters so the
-    // full word "Amro" gets captured and replaced.
-    while (end < text.length && /[a-zA-Z]/.test(text[end])) end++
-    // (No leftward extension — BERT's leading subword always starts at the
-    //  real word boundary, so left-side truncation isn't the failure mode.)
-
-    // Both filter checks run AFTER word-boundary extension against the actual
-    // captured text. Doing them before extension misses cases like "Amro"
-    // (where the captured word starts as "Am" and only matches the skip list
-    // / stopwords once extension completes the word).
-    const actualReal = text.slice(start, end).toLowerCase()
-    if (DOMAIN_STOPWORDS.has(actualReal)) continue
-    if (skipSet.has(actualReal))          continue
-
-    entities.push({
-      real:  text.slice(start, end),
-      type:  mappedType,
-      score: avgScore,
-      start,
-      end,
-    })
-    cursor = end
-  }
-
-  // Dedupe: same lowercase real value within this call → same pseudonym.
+  // Same lowercased (type, real) within this message → same pseudonym.
   const byKey = new Map()
   const mappings = []
-  for (const e of entities) {
-    const key = `${e.type}:${e.real.toLowerCase()}`
+  for (const h of valid) {
+    const key = `${h.type}:${h.real.toLowerCase()}`
     let pseudonym = byKey.get(key)
     if (!pseudonym) {
-      pseudonym = mintPseudonym(e.type)
+      pseudonym = mintPseudonym(h.type)
       byKey.set(key, pseudonym)
     }
-    mappings.push({ ...e, pseudonym })
+    mappings.push({
+      real:  h.real,
+      type:  h.type,
+      start: h.start,
+      end:   h.end,
+      pseudonym,
+    })
   }
 
-  // Right-to-left replacement preserves earlier start/end indices.
+  // Right-to-left rewrite preserves earlier indices.
   let redactedText = text
   for (let i = mappings.length - 1; i >= 0; i--) {
     const m = mappings[i]
     redactedText = redactedText.slice(0, m.start) + m.pseudonym + redactedText.slice(m.end)
   }
-
   return { redactedText, mappings }
 }
 
@@ -375,6 +280,6 @@ function rehydrateAction(action, mappings) {
 }
 
 module.exports = {
-  redactText, canonicalizeMappings, applyCanonicals,
-  rehydrateText, rehydrateAction, getPipeline,
+  redactFromHints, canonicalizeMappings, applyCanonicals,
+  rehydrateText, rehydrateAction,
 }

@@ -20,6 +20,13 @@ const { supabase } = require('../config')
 const { encryptForUser, decryptForUser } = require('./crypto')
 const { claudeChat } = require('./claude')
 
+// The summary updater is a discrete, bounded JSON-out task — perfect for a
+// faster/cheaper model than the main chat. The main chat runs on DeepSeek v4
+// Pro (via ANTHROPIC_MODEL); this updater routes to DeepSeek v4 Flash via
+// SUMMARY_MODEL. Falls back to the chat model if SUMMARY_MODEL is unset, so
+// local dev without the env var keeps working.
+const SUMMARY_MODEL = process.env.SUMMARY_MODEL || undefined
+
 // Pseudonyms in our format always match this. Used to discover which
 // pseudonyms a summary blob references so we can rehydrate Claude's response
 // even when it cites a person we DIDN'T see in the current user message.
@@ -182,8 +189,12 @@ Return the updated JSON now.`
     const raw = await claudeChat({
       system: SUMMARY_UPDATER_SYSTEM,
       messages: [{ role: 'user', content: userPrompt }],
-      maxTokens: 800,
+      // Conservative ceiling: 4 entities × ~400-char summaries + a 400-char
+      // conv summary + JSON wrapping easily exceeds 800. Truncation was the
+      // root cause of the prior "Unterminated string in JSON" errors.
+      maxTokens: 2000,
       temperature: 0.2,
+      ...(SUMMARY_MODEL ? { model: SUMMARY_MODEL } : {}),
     })
     // Strip any code fences and parse
     const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()

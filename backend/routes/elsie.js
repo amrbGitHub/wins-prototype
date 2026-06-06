@@ -4,10 +4,11 @@
 //   1. Redact every message in history (per-user pseudonym map, encrypted at rest).
 //   2. Fetch long-term notes for every entity in the conversation.
 //   3. Call the model with redacted history + tool definitions + injected summaries.
-//   4. Stream prose deltas (rehydrated to real names) to the frontend.
-//   5. Collect tool_use blocks, rehydrate their text payloads, resolve against
-//      the user's real goals/programs, emit them in the SSE `done` event.
-//   6. Async-ish (synchronous before `done`): update per-pseudonym summaries.
+//   4. Collect the full response, rehydrate pseudonyms back to real names.
+//   5. Convert tool_use blocks into actions, rehydrate their text payloads,
+//      resolve against the user's real goals/programs.
+//   6. Update per-pseudonym summaries (synchronous before responding).
+//   7. Return one JSON response with the full message + resolved actions.
 //
 // Real names live only in our DB and the user's browser — Anthropic-compatible
 // endpoints (Anthropic, DeepSeek) only ever see pseudonymized content.
@@ -19,7 +20,7 @@ const { dbGoalToShape, dbProgramToShape } = require('../lib/shapes')
 const { resolveActions } = require('../lib/actionResolver')
 const { buildGatewaySystem } = require('../prompts/lc-gateway')
 const {
-  redactText, canonicalizeMappings, applyCanonicals,
+  redactFromHints, canonicalizeMappings, applyCanonicals,
   rehydrateText, rehydrateAction,
 } = require('../lib/redactor')
 const { claudeChatStream } = require('../lib/claude')
@@ -28,6 +29,7 @@ const {
   updateSummaries,
 } = require('../lib/summaries')
 const { LC_TOOLS } = require('../lib/tools')
+const { logMemory } = require('../lib/memory')
 
 const router = Router()
 
@@ -35,7 +37,7 @@ const router = Router()
 // can watch PII pseudonymization happen live during testing. Off by default.
 const GATEWAY_DEBUG = process.env.LC_GATEWAY_DEBUG === 'true'
 
-// POST /api/elsie/chat — streaming LC chat (route path kept for backwards compat)
+// POST /api/elsie/chat — LC chat turn (single JSON response)
 router.post('/chat', verifyToken, async (req, res) => {
   try {
     const { messages = [], firstName = '', conversationId = null } = req.body || {}
@@ -84,38 +86,27 @@ router.post('/chat', verifyToken, async (req, res) => {
       ? [{ role: 'user', content: 'Please start this new chat with a short friendly greeting and ask what I would like help with.' }]
       : messages
 
-    // ── SSE streaming setup ────────────────────────────────────────────────
-    res.setHeader('Content-Type', 'text/event-stream')
-    res.setHeader('Cache-Control', 'no-cache')
-    res.setHeader('Connection', 'keep-alive')
-    res.flushHeaders()
-
-    try {
-      await handleTurn({
-        res, userId: req.userId, conversationId, chatMessages,
-        // Skip-list: the user's own first name (not PII to themselves; Claude
-        // already knows it) AND "LC" (the assistant's name, which appears in
-        // greetings and gets mistakenly tagged as ORG/PERSON by BERT).
-        skipNames: ['LC', nameStr].filter(n => n && n !== 'there'),
-        goals, programs,
-        systemArgs: { nameStr, goalsCtx, programsCtx, reflectionCtx, todayCtx },
-      })
-    } catch (err) {
-      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`)
-      res.end()
-    }
+    await handleTurn({
+      res, userId: req.userId, conversationId, chatMessages,
+      // Skip-list: the user's own first name (not PII to themselves; Claude
+      // already knows it) AND "LC" (the assistant's name, which appears in
+      // greetings and gets mistakenly tagged as ORG/PERSON by BERT).
+      skipNames: ['LC', nameStr].filter(n => n && n !== 'there'),
+      goals, programs,
+      systemArgs: { nameStr, goalsCtx, programsCtx, reflectionCtx, todayCtx },
+    })
   } catch (err) {
     if (!res.headersSent) res.status(500).json({ error: err.message })
-    else { res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`); res.end() }
   }
 })
 
-// Preview endpoint — POST text, see the redactor's output without calling Claude.
-// Useful for tuning the corpus and crafting test prompts.
+// Preview endpoint — POST text + entity hints, see the redactor's output
+// without calling Claude. Hints come from the frontend NER; this just exercises
+// the pseudonym minting + string-slicing path. Useful for testing edge cases.
 router.post('/preview-redaction', verifyToken, async (req, res) => {
   try {
-    const { text = '' } = req.body || {}
-    const result = await redactText(String(text))
+    const { text = '', entityHints = [] } = req.body || {}
+    const result = redactFromHints(String(text), entityHints)
     res.json(result)
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
@@ -136,16 +127,24 @@ router.post('/clear-pseudonyms', verifyToken, async (req, res) => {
 
 // ── Turn handler ─────────────────────────────────────────────────────────────
 async function handleTurn({ res, userId, conversationId, chatMessages, skipNames, goals, programs, systemArgs }) {
-  const HOLD_BACK = 32   // > longest possible pseudonym; prevents mid-pseudonym stream splits
+  logMemory('turn:start')
 
-  // 1. Redact every message. Both user and prior-assistant messages — assistant
-  // turns were rehydrated to real names before being shown to the user, so they
-  // contain PII on the way back to us.
-  const perMessage = []
-  for (const m of chatMessages) {
-    const { redactedText, mappings } = await redactText(m.content || '', { skipNames })
-    perMessage.push({ role: m.role, redactedText, mappings })
-  }
+  // 1. Redact every message using entity hints supplied by the frontend NER.
+  // Both user and prior-assistant messages get hints — assistant turns were
+  // rehydrated to real names before display, so they contain PII on the way
+  // back. Frontend re-runs NER on the assistant message after streaming
+  // completes and stores the hints on the message object.
+  //
+  // If a message arrives without hints (legacy conversation predating this
+  // refactor, or a buggy client), we treat it as having no PII rather than
+  // loading a server-side model. The skipNames pass still happens. This is
+  // a fail-open posture for the legacy case; the cybersec test corpus
+  // confirms the frontend NER stays in lockstep with what was previously
+  // server-side.
+  const perMessage = chatMessages.map(m =>
+    ({ role: m.role,
+       ...redactFromHints(m.content || '', m.entityHints || [], { skipNames }) })
+  )
 
   // 2. Canonicalize all pseudonyms via the per-user registry (persistent IDs).
   const allMappings = perMessage.flatMap(p => p.mappings)
@@ -211,8 +210,20 @@ async function handleTurn({ res, userId, conversationId, chatMessages, skipNames
   }, { seen: new Set(), lines: [] }).lines.join('\n')
 
   if (GATEWAY_DEBUG) {
-    const fmt = m => `${m.real}(${m.type})→${canonicalsByKey.get(`${m.type}:${m.real.toLowerCase()}`)}`
     const dedupe = arr => [...new Map(arr.map(m => [`${m.type}:${m.real.toLowerCase()}`, m])).values()]
+    // Mark each formatted entity with [new] if THIS is the first turn it has
+    // appeared in the registry, [seen] if it was reused from a prior turn.
+    // "First registry insert" is detectable as: latest message contains the
+    // mapping AND no earlier message in this conversation history references
+    // the same key.
+    const histKeys = new Set(
+      perMessage.slice(0, -1).flatMap(p => p.mappings).map(m => `${m.type}:${m.real.toLowerCase()}`)
+    )
+    const fmt = m => {
+      const key = `${m.type}:${m.real.toLowerCase()}`
+      const tag = histKeys.has(key) ? '[seen]' : '[new]'
+      return `${m.real}(${m.type})→${canonicalsByKey.get(key)} ${tag}`
+    }
     const histPII = dedupe(perMessage.slice(0, -1).flatMap(p => p.mappings))
       .filter(h => !dedupe(latestMappings).some(n => `${n.type}:${n.real.toLowerCase()}` === `${h.type}:${h.real.toLowerCase()}`))
     const last         = chatMessages[chatMessages.length - 1]
@@ -220,37 +231,27 @@ async function handleTurn({ res, userId, conversationId, chatMessages, skipNames
     console.log('\n┌── LC gateway turn ─────────────────────────────────────')
     console.log(`│ USER:        ${last?.content || ''}`)
     console.log(`│ TO CLAUDE:   ${lastRedacted?.content || ''}`)
-    console.log(`│ NEW PII:     ${latestMappings.length ? dedupe(latestMappings).map(fmt).join(', ') : '(none)'}`)
+    console.log(`│ IN THIS MSG: ${latestMappings.length ? dedupe(latestMappings).map(fmt).join(', ') : '(none)'}`)
     console.log(`│ FROM HIST:   ${histPII.length ? histPII.map(fmt).join(', ') : '(none)'}`)
     console.log(`│ PERSON SUMS: ${personSummaries.size} loaded for ${allRegistryIds.size} entities`)
     console.log('└────────────────────────────────────────────────────────')
   }
 
-  // 7. Build system prompt + stream the response.
+  // 7. Build system prompt and call the model. We collect the full response
+  // server-side (no wire-level streaming) so rehydration happens once over
+  // the complete text — no chunk-boundary pseudonym splits, no live regex
+  // races.
   const system = buildGatewaySystem({ ...systemArgs, personSummariesBlock: personBlock })
 
-  let buffer = ''
-  let flushedUpTo = 0
+  logMemory('before-llm')
+
   let fullPseudoText = ''
   let rawTools = []
 
   for await (const event of claudeChatStream({ system, messages: claudeMessages, tools: LC_TOOLS })) {
-    if (event.type === 'text') {
-      buffer += event.text
-      fullPseudoText += event.text
-      const safeEnd = Math.max(flushedUpTo, buffer.length - HOLD_BACK)
-      if (safeEnd > flushedUpTo) {
-        const slice = buffer.slice(flushedUpTo, safeEnd)
-        res.write(`data: ${JSON.stringify({ delta: rehydrateText(slice, rehydrationMappings) })}\n\n`)
-        flushedUpTo = safeEnd
-      }
-    } else if (event.type === 'tools') {
-      rawTools = event.tools
-    }
+    if (event.type === 'text')       fullPseudoText += event.text
+    else if (event.type === 'tools') rawTools = event.tools
   }
-  // Flush the held tail.
-  const tail = buffer.slice(flushedUpTo)
-  if (tail) res.write(`data: ${JSON.stringify({ delta: rehydrateText(tail, rehydrationMappings) })}\n\n`)
 
   // 8. Convert tool_use blocks into actions, rehydrate text fields, resolve
   // refs to real UUIDs against the user's goals/programs.
@@ -259,7 +260,9 @@ async function handleTurn({ res, userId, conversationId, chatMessages, skipNames
   const { actions, dropped } = resolveActions(actionsWithRealNames, goals, programs)
 
   // 9. Update per-pseudonym summaries for every entity in the conversation
-  // (sync before `done` so the next turn sees fresh notes).
+  // (sync before responding so the next turn sees fresh notes — moving this
+  // off the hot path is a separate change once the Flash summary updater
+  // lands).
   const pseudonymToRegistryId = new Map()
   for (const [key, regId] of registryIdsByKey) {
     const pseudonym = canonicalsByKey.get(key)
@@ -278,15 +281,11 @@ async function handleTurn({ res, userId, conversationId, chatMessages, skipNames
     console.warn('[gateway] summary update failed (non-fatal):', e.message)
   }
 
-  // 10. Done event with the full rehydrated message + resolved actions.
+  logMemory('turn:end')
+
+  // 10. Single JSON response with the full rehydrated message + resolved actions.
   const fullMessage = rehydrateText(fullPseudoText, rehydrationMappings)
-  res.write(`data: ${JSON.stringify({
-    done:    true,
-    message: fullMessage,
-    actions,
-    dropped,
-  })}\n\n`)
-  res.end()
+  res.json({ message: fullMessage, actions, dropped })
 }
 
 module.exports = router
