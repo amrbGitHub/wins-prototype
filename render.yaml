@@ -21,3 +21,16 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      # LC chat gateway — Anthropic-compatible LLM (set to DeepSeek for this project)
+      - key: ANTHROPIC_BASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        sync: false       # main chat (LC voice) — DeepSeek v4 Pro
+      - key: SUMMARY_MODEL
+        sync: false       # per-turn summary updater — DeepSeek v4 Flash
+      # AES-256 master key for the per-user pseudonym registry. Losing this
+      # bricks all encrypted rows; must match the dev key if both share a DB.
+      - key: PSEUDONYM_ENCRYPTION_KEY
+        sync: false

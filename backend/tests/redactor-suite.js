@@ -148,6 +148,10 @@ function runCryptoInvariants() {
   check('hash differs across users for same value', h1 !== h4)
 
   const ct = encryptForUser(userA, 'James')
+  check('encrypt returns Postgres "\\x<hex>" string',
+        typeof ct === 'string' && ct.startsWith('\\x'),
+        `got ${typeof ct}: ${String(ct).slice(0, 12)}`)
+
   const pt = decryptForUser(userA, ct)
   check('encrypt → decrypt round-trip', pt === 'James',
         pt !== 'James' ? `got "${pt}"` : '')
@@ -156,16 +160,19 @@ function runCryptoInvariants() {
   try { decryptForUser(userB, ct) } catch { crossUserFailed = true }
   check('cross-user decrypt rejected (AES-GCM tag mismatch)', crossUserFailed)
 
-  const tampered = Buffer.from(ct)
-  tampered[20] ^= 0x01
+  // Tamper a byte inside the ciphertext portion of the "\x<hex>" string.
+  const tamperedBytes = Buffer.from(ct.slice(2), 'hex')
+  tamperedBytes[20] ^= 0x01
+  const tamperedCt = '\\x' + tamperedBytes.toString('hex')
   let tamperFailed = false
-  try { decryptForUser(userA, tampered) } catch { tamperFailed = true }
+  try { decryptForUser(userA, tamperedCt) } catch { tamperFailed = true }
   check('tampered ciphertext rejected', tamperFailed)
 
-  const hexEncoded = '\\x' + ct.toString('hex')
-  const ptFromHex = decryptForUser(userA, hexEncoded)
-  check('decrypt accepts Postgres bytea hex string', ptFromHex === 'James',
-        ptFromHex !== 'James' ? `got "${ptFromHex}"` : '')
+  // decryptForUser also accepts a raw Buffer (in-memory edge cases) — toBuffer
+  // normalises the shape on the way in.
+  const ptFromBuf = decryptForUser(userA, Buffer.from(ct.slice(2), 'hex'))
+  check('decrypt accepts raw Buffer input', ptFromBuf === 'James',
+        ptFromBuf !== 'James' ? `got "${ptFromBuf}"` : '')
 }
 
 ;(() => {

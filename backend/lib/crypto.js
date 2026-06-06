@@ -13,6 +13,13 @@
 //
 // AES-GCM ciphertext layout in the DB (BYTEA):
 //   [12 bytes IV][N bytes ciphertext][16 bytes auth tag]
+//
+// Wire format note: encryptForUser returns the Postgres-native bytea input
+// string ("\x<hex>"), NOT a raw Node Buffer. We confirmed empirically that
+// passing a Buffer through supabase-js gets JSON-stringified as
+// `{"type":"Buffer","data":[...]}` and Postgres then stores those literal
+// bytes, silently breaking decryption on read. The "\x<hex>" form is what
+// PostgREST also returns on read, so it's now symmetric on both sides.
 
 const crypto = require('node:crypto')
 
@@ -57,7 +64,9 @@ function hashForUser(userId, value) {
   return h.digest('hex')
 }
 
-// AES-256-GCM encrypt. Returns a Buffer ready for BYTEA storage.
+// AES-256-GCM encrypt. Returns the "\x<hex>" string form (Postgres-native
+// bytea input). See the wire format note at the top of the file for why we
+// don't return a raw Buffer here.
 function encryptForUser(userId, plaintext) {
   const key = deriveUserKey(userId)
   const iv  = crypto.randomBytes(12)
@@ -67,7 +76,7 @@ function encryptForUser(userId, plaintext) {
     cipher.final(),
   ])
   const tag = cipher.getAuthTag()
-  return Buffer.concat([iv, ct, tag])
+  return '\\x' + Buffer.concat([iv, ct, tag]).toString('hex')
 }
 
 // Normalize whatever Supabase / Postgres hands us back for a BYTEA column

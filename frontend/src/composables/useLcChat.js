@@ -1,7 +1,7 @@
 // useLcChat — shared state + behaviour for both LC entry points (Elsie.vue overlay
 // and ElsiePage.vue full page). Owns:
 //   - messages array + assistant message lifecycle
-//   - SSE stream wrapper with inactivity watchdog + AbortController
+//   - single-shot request to /api/elsie/chat with abortable timeout
 //   - empty-response detection + retry-from-message
 //   - 5 auto-executing actions (create_goal, update_goal, delete_goal, log_win, navigate)
 //   - SpeechRecognition lifecycle (voice mode)
@@ -19,7 +19,7 @@ import { useSTT }   from './useSTT.js'
 import { todayLocal, thisMonthLocal } from '../lib/dates.js'
 import { detectEntities, getPipeline as warmNer } from '../lib/redactor.js'
 
-const WATCHDOG_MS = 60_000           // abort SSE if no chunk for this long
+const REQUEST_TIMEOUT_MS = 120_000   // abort the chat request if the model takes longer than this
 
 // ── action label/icon registry ────────────────────────────────────────────────
 // Returned by helpers — consumers import their own icon components and look up by type
@@ -75,7 +75,7 @@ export function actionPendingLabel(action) {
 
 // ── core composable ──────────────────────────────────────────────────────────
 export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onNavigate, onAfterTurn } = {}) {
-  const { apiStream, apiFetch } = useApi()
+  const { apiFetch } = useApi()
   const tts = useTTS()
 
   // ── state ──────────────────────────────────────────────────────────────────
@@ -206,15 +206,15 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
     return msg.entityHints
   }
 
-  // ── SSE call ───────────────────────────────────────────────────────────────
-  // Backend streams prose deltas and emits a final `done` event with the full
-  // rehydrated message + resolved actions. Any error during streaming arrives
-  // as `chunk.error` and is thrown — caller catches.
+  // ── chat request ───────────────────────────────────────────────────────────
+  // Single POST to /api/elsie/chat. Backend collects the full LLM response,
+  // rehydrates pseudonyms back to real names, resolves tool calls into
+  // actions, then returns one JSON payload: { message, actions, dropped }.
   //
   // Before sending: ensure every message in the history has entityHints
   // attached. Backend uses these to do PII redaction without loading a
   // NER model (saves ~400MB resident memory on the server).
-  async function callAPI(historyMessages, onDelta = null, signal = undefined) {
+  async function callAPI(historyMessages, signal = undefined) {
     // Compute hints in parallel — most are already cached from prior turns.
     await Promise.all(historyMessages.map(ensureHints))
 
@@ -224,8 +224,7 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
       entityHints:  m.entityHints || [],
     }))
 
-    let finalMessage = '', finalActions = [], serverDropped = []
-    for await (const chunk of apiStream('/api/elsie/chat', {
+    const result = await apiFetch('/api/elsie/chat', {
       method: 'POST',
       body: JSON.stringify({
         messages:       payload,
@@ -233,16 +232,13 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
         conversationId: getConversationId?.() || null,
       }),
       signal,
-    })) {
-      if (chunk.error) throw new Error(chunk.error)
-      if (chunk.delta && onDelta) onDelta(chunk.delta)
-      if (chunk.done) {
-        finalMessage  = chunk.message || ''
-        finalActions  = Array.isArray(chunk.actions) ? chunk.actions : []
-        serverDropped = Array.isArray(chunk.dropped) ? chunk.dropped : []
-      }
+    })
+
+    return {
+      message:       result?.message || '',
+      actions:       Array.isArray(result?.actions) ? result.actions : [],
+      serverDropped: Array.isArray(result?.dropped) ? result.dropped : [],
     }
-    return { message: finalMessage, actions: finalActions, serverDropped }
   }
 
   // ── action prep ────────────────────────────────────────────────────────────
@@ -284,26 +280,19 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
   // Tracked so cancelVoiceTurn() can abort an in-progress generation.
   let _activeController = null
 
-  // ── core: stream one turn into messages[aiIdx], with watchdog ─────────────
-  async function streamAITurn(aiIdx, history, { showLive = true } = {}) {
+  // ── core: run one turn into messages[aiIdx], with timeout ────────────────
+  // showLive is kept on the signature for callsite compatibility; with no
+  // live deltas there is nothing to suppress, but callers (e.g. voice mode)
+  // still pass it for symmetry. The full response lands in one assignment.
+  async function streamAITurn(aiIdx, history, { showLive = true } = {}) {  // eslint-disable-line no-unused-vars
     const controller = new AbortController()
     _activeController = controller
-    let lastChunkAt = Date.now()
-    let accumulated = ''
-    const watchdog = setInterval(() => {
-      if (Date.now() - lastChunkAt > WATCHDOG_MS) controller.abort()
-    }, 2000)
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
     try {
-      const { message, actions, serverDropped } = await callAPI(history, (delta) => {
-        lastChunkAt = Date.now()
-        if (!showLive) return
-        // Deltas are already-rehydrated prose chunks — append directly.
-        accumulated += delta
-        messages.value[aiIdx].content = accumulated
-        scrollBottom()
-      }, controller.signal)
+      const { message, actions, serverDropped } = await callAPI(history, controller.signal)
       messages.value[aiIdx].content = message || messages.value[aiIdx].content
       messages.value[aiIdx].actions = prepareActions(actions)
+      scrollBottom()
       if (serverDropped?.length) console.warn('[LC] server dropped actions:', serverDropped)
 
       // Compute entity hints for the assistant response now so they're cached
@@ -325,7 +314,7 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
       messages.value[aiIdx].errorMsg = aborted ? 'LC took too long to respond.' : (e?.message || 'Something went wrong.')
       return { ok: false, error: e }
     } finally {
-      clearInterval(watchdog)
+      clearTimeout(timeout)
       if (_activeController === controller) _activeController = null
     }
   }

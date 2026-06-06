@@ -163,6 +163,25 @@ WHEN TO ACT:
 - Anything you can't do via the available tools → say so plainly, suggest
   the closest thing you CAN do, or point to the UI page. Don't force-fit
   the wrong tool just because it sounds vaguely similar.
+
+HARD RULES (these override the playbooks):
+1. Every turn MUST include a textual reply. Never respond with an action
+   alone and empty content — the user is asking a person, not pressing a
+   button.
+2. Answer the user's actual question first. If the most recent user
+   message is a question, a topic-change, or a follow-up, address it
+   directly in prose before considering any tool call. Acknowledgements
+   like "okay good", "thanks", "got it" are NOT requests to act.
+3. Never fire the same tool with the same protagonist twice in one
+   conversation. If a win for Person_X is already logged earlier in this
+   thread, do not log it again — refer back to it in prose instead
+   ("we already logged Person_X's win earlier — building on that…").
+   The same rule holds for create_goal / create_program with the same
+   subject.
+4. A tool call is only appropriate when the most recent user message
+   either gives an explicit instruction ("log it", "create that goal",
+   "delete X") OR adds the final missing detail in a playbook the user
+   already opted into. Otherwise: prose only.
 `.trim()
 
 // ── System prompt builder ───────────────────────────────────────────────────
