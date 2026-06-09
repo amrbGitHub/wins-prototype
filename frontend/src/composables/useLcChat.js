@@ -252,11 +252,24 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
     // Compute hints in parallel — most are already cached from prior turns.
     await Promise.all(historyMessages.map(ensureHints))
 
-    const payload = historyMessages.map(m => ({
-      role:         m.role,
-      content:      m.content,
-      entityHints:  m.entityHints || [],
-    }))
+    // Include the executed-actions trace on assistant messages so the backend
+    // can reconstruct tool_use/tool_result pairs in conversation history. Without
+    // this, the model sees only its own prose ("I'll create that goal") with no
+    // proof the tool ran, and re-emits the same tool call on the next turn.
+    // We only forward the minimum the server needs: type + final _state.
+    const payload = historyMessages.map(m => {
+      const base = {
+        role:        m.role,
+        content:     m.content,
+        entityHints: m.entityHints || [],
+      }
+      if (m.role === 'assistant' && Array.isArray(m.actions) && m.actions.length) {
+        base.actions = m.actions
+          .filter(a => a && a.type && (a._state === 'done' || a._state === 'pending'))
+          .map(a => ({ type: a.type, _state: a._state }))
+      }
+      return base
+    })
 
     const result = await apiFetch('/api/elsie/chat', {
       method: 'POST',
@@ -488,7 +501,7 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
     const diagnosis = failedMsg?.failed ? failedMsg.errorMsg : null
 
     messages.value = messages.value.slice(0, msgIdx)
-    const history = messages.value.map(m => ({ role: m.role, content: m.content }))
+    const history = messages.value.map(m => ({ role: m.role, content: m.content, actions: m.actions, entityHints: m.entityHints }))
 
     // Inject the failure diagnosis as a system-style user message so the model
     // doesn't just regenerate the same bad output. We tag it as a user message
@@ -561,7 +574,7 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
 
     convoStatus.value = 'processing'
     error.value = ''
-    const history = messages.value.map(m => ({ role: m.role, content: m.content }))
+    const history = messages.value.map(m => ({ role: m.role, content: m.content, actions: m.actions, entityHints: m.entityHints }))
     messages.value.push({ _id: newId('m'), role: 'assistant', content: '', actions: [], failed: false })
     const aiIdx = messages.value.length - 1
     const r = await streamAITurn(aiIdx, history, { showLive: false })
@@ -621,7 +634,7 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
     const trimmed = (text || '').trim()
     if (!trimmed || streaming.value) return
     messages.value.push({ _id: newId('m'), role: 'user', content: trimmed })
-    const history = messages.value.map(m => ({ role: m.role, content: m.content }))
+    const history = messages.value.map(m => ({ role: m.role, content: m.content, actions: m.actions, entityHints: m.entityHints }))
     messages.value.push({ _id: newId('m'), role: 'assistant', content: '', actions: [], failed: false })
     const aiIdx = messages.value.length - 1
     streaming.value = true

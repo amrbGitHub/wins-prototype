@@ -1,9 +1,10 @@
 // Action tools for LC, exposed to Claude/DeepSeek in Anthropic tool-call format.
 //
 // The model can choose to invoke any of these alongside its prose response.
-// We do NOT send tool_result back — these are used as structured-output specs,
-// not a tool-use loop. Each emitted tool_use becomes an action in the SSE
-// `done` event; the frontend executes them via the existing CRUD endpoints.
+// Each emitted tool_use becomes an action in the chat response; the frontend
+// executes it via the existing CRUD endpoints. On the NEXT turn, the gateway
+// reconstructs synthetic tool_use + tool_result pairs in history so the model
+// sees concrete proof the call already ran and does not re-emit it.
 //
 // Text fields in any input contain pseudonyms (Person_4F2C, Org_AD92, ...)
 // — the gateway rehydrates them back to real names before dispatching.

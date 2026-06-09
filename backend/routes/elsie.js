@@ -168,10 +168,59 @@ async function handleTurn({ res, userId, conversationId, chatMessages, skipNames
   }
 
   // 3. Apply canonicals to each message → array sent to the model.
-  const claudeMessages = perMessage.map(p => ({
-    role:    p.role,
-    content: applyCanonicals(p.redactedText, p.mappings, canonicalsByKey),
-  }))
+  //
+  // For assistant messages that executed tool calls on a prior turn, we
+  // reconstruct synthetic tool_use blocks + paired tool_result blocks on the
+  // following user message. Without this, the model sees only its own prose
+  // ("I'll create that goal") with no proof the tool ran, and re-emits the
+  // same call on the next turn. This loop closure is required by the
+  // Anthropic tool-use protocol — DeepSeek's Anthropic-compatible endpoint
+  // honors it too.
+  //
+  // Action inputs are intentionally empty objects: the model already knows
+  // what it called from its own prior turn, and the *result* of the call
+  // (the created goal, the logged win) is in the dynamic USER CONTEXT block.
+  // Re-pseudonymizing full action payloads here would be duplicative work.
+  const claudeMessages = []
+  for (let i = 0; i < perMessage.length; i++) {
+    const p = perMessage[i]
+    const orig = chatMessages[i]
+    const text = applyCanonicals(p.redactedText, p.mappings, canonicalsByKey)
+    const completedActions = p.role === 'assistant' && Array.isArray(orig?.actions)
+      ? orig.actions.filter(a => a && a.type && a._state === 'done')
+      : []
+    if (completedActions.length === 0) {
+      claudeMessages.push({ role: p.role, content: text })
+      continue
+    }
+    // Build the assistant turn with tool_use blocks alongside the prose.
+    const blocks = []
+    if (text) blocks.push({ type: 'text', text })
+    const toolResults = []
+    completedActions.forEach((a, idx) => {
+      const toolUseId = `hist_${i}_${idx}`
+      blocks.push({ type: 'tool_use', id: toolUseId, name: a.type, input: {} })
+      toolResults.push({
+        type: 'tool_result',
+        tool_use_id: toolUseId,
+        content: 'Completed successfully. Result is reflected in USER CONTEXT below.',
+      })
+    })
+    claudeMessages.push({ role: 'assistant', content: blocks })
+    // Tool_result blocks must arrive in the immediately-following user turn.
+    // Merge them with the next user message's text if there is one; otherwise
+    // emit a standalone user message containing just the tool_results.
+    const nextP = perMessage[i + 1]
+    if (nextP?.role === 'user') {
+      const nextText = applyCanonicals(nextP.redactedText, nextP.mappings, canonicalsByKey)
+      const userBlocks = [...toolResults]
+      if (nextText) userBlocks.push({ type: 'text', text: nextText })
+      claudeMessages.push({ role: 'user', content: userBlocks })
+      i++ // consume the user message we just merged
+    } else {
+      claudeMessages.push({ role: 'user', content: toolResults })
+    }
+  }
 
   // 4. Fetch long-term notes for every entity in the conversation. Lets the
   // model recognize people referred to by pronoun and pull cross-conversation

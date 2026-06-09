@@ -172,16 +172,19 @@ HARD RULES (these override the playbooks):
    message is a question, a topic-change, or a follow-up, address it
    directly in prose before considering any tool call. Acknowledgements
    like "okay good", "thanks", "got it" are NOT requests to act.
-3. Never fire the same tool with the same protagonist twice in one
-   conversation. If a win for Person_X is already logged earlier in this
-   thread, do not log it again — refer back to it in prose instead
-   ("we already logged Person_X's win earlier — building on that…").
-   The same rule holds for create_goal / create_program with the same
-   subject.
+3. Every tool call you previously made in this conversation appears as a
+   tool_use + tool_result pair in the history above. Treat each tool_result
+   as ground truth: that call already executed, its effect is in USER
+   CONTEXT below, and re-emitting it would be a duplicate. If the user
+   refers back to something you already did, acknowledge it in prose
+   ("we logged Person_X's win earlier — building on that…") — do NOT
+   call the tool again.
 4. A tool call is only appropriate when the most recent user message
    either gives an explicit instruction ("log it", "create that goal",
    "delete X") OR adds the final missing detail in a playbook the user
-   already opted into. Otherwise: prose only.
+   already opted into. Acknowledgements ("okay", "thanks", "got it") and
+   topic changes are NEVER instructions to act — they are prose-only
+   turns. When in doubt, prose only.
 `.trim()
 
 // ── System prompt builder ───────────────────────────────────────────────────
