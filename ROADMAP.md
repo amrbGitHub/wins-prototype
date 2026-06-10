@@ -33,25 +33,62 @@ the abstraction; formalize provider config per-org (base URL, key, model id,
 summary model id) and surface it in admin settings. Keep the redaction layer
 provider-agnostic.
 
-### Admin page
-Internal-only view for an admin to inspect users' entries, goals, programs,
-and LC conversation metadata. Respect the encryption boundary — admins should
-see plaintext only if that's an intentional product decision; otherwise show
-pseudonymized data. Decide the policy before building.
+### Admin page — v2 powers
+v1 shipped on `lc-modular`: role-based gating, LLM provider config, user
+inspection (entries/goals/programs/reflections/LC chats), user deletion.
+Next candidates, grouped by problem they solve:
+
+- **Account management**: promote/demote admins from the UI (kills the env-var
+  dance), suspend-vs-delete via `is_disabled`, trigger password-reset email on
+  a user's behalf, edit a user's profile for support cases.
+- **Observability**: LLM usage per user (tokens + rough cost, split chat vs
+  summary updater), failed-action log (every `resolveActions` drop + claude
+  error), last-active timestamp per user.
+- **Quality / safety**: side-by-side LC chat view showing the pseudonymized
+  payload actually sent to the model next to the rehydrated version — proves
+  the redaction story works on real conversations. System-prompt editor in
+  the admin UI for prompt iteration without a deploy (risky, high leverage).
+- **Data**: per-user JSON export (GDPR-shaped), targeted `clear-pseudonyms`
+  for a user whose registry got polluted.
+
+Top three picks if forced to prioritize: promote/demote admins, LLM usage per
+user, pseudonymized side-by-side chat view.
 
 ### External account connections
 OAuth-link a user's LinkedIn / Email (Gmail?) / Slack so the celebration
 message draft from the Celebrate tab can be posted directly. Per platform:
 auth flow, scopes, post endpoint, error/retry UX.
 
-### Remove username tag on accounts
-Strip the user-visible username field/handle. Confirm scope (display only? DB
-column? auth.users metadata?) before touching.
+### User-facing FAQ / docs site
+A real docs surface for testers and prospective businesses. Top-of-mind
+content:
+
+- Supported LLM providers and the hard requirement: native tool calling.
+  Concrete examples of what works (Claude Haiku 4.5, GPT-4o-mini, Gemini
+  2.0 Flash) and what doesn't (GPT-3.5, small local models, anything
+  pre-function-calling).
+- Privacy model: what crosses the wire vs what stays local, the
+  pseudonymization pipeline, where the encryption keys live, what happens
+  when an admin runs `clean-slate`.
+- Admin operations: env-var allowlist, LLM provider config, user
+  inspection + deletion.
+- L&D framing: who LC is for, what the Journal / Celebrate / LC chat
+  surfaces each do, and the "win attribution" principle.
+
+Format TBD — could be a `/docs` route in the app, a separate Astro/VitePress
+site, or just a sharp README expansion. Decide based on whether testers vs
+prospective customers are the primary audience.
+
 
 ---
 
 ## Done (recent)
 
+- Admin v1 on `lc-modular`: role-gated admin page, LLM provider config
+  (env-fallback + DB-overridable + encrypted API key), user inspection
+  (entries/goals/programs/reflections/LC chats), user delete with
+  type-email-to-confirm, env-var admin allowlist with lazy DB reconcile.
+- Username removed from UI + backend write/read path (DB column intact).
 - LC tool-protocol fix: reconstruct `tool_use`/`tool_result` pairs in history
   so the model has concrete proof prior calls executed. Kills the
   duplicate-emission-on-next-turn bug across all five auto-executing tools.

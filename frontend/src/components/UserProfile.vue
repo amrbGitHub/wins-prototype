@@ -21,7 +21,6 @@ const stats   = ref({ goalsMet: 0, totalWins: 0 })
 const form = ref({
   firstName:    '',
   lastName:     '',
-  username:     '',
   learningStyle: '',
   aiPersonality: '',
 })
@@ -60,7 +59,6 @@ function syncForm() {
   if (props.profile) {
     form.value.firstName    = props.profile.firstName    || ''
     form.value.lastName     = props.profile.lastName     || ''
-    form.value.username     = props.profile.username     || ''
     form.value.learningStyle = props.profile.learningStyle || ''
     form.value.aiPersonality = props.profile.aiPersonality || ''
   }
@@ -105,7 +103,7 @@ async function save() {
 const displayName = computed(() => {
   if (!props.profile) return user.value?.email ?? ''
   const { firstName, lastName } = props.profile
-  return [firstName, lastName].filter(Boolean).join(' ') || props.profile.username || user.value?.email
+  return [firstName, lastName].filter(Boolean).join(' ') || user.value?.email
 })
 
 // ── Clean slate (user-initiated data wipe) ───────────────────────────────────
@@ -177,7 +175,6 @@ async function confirmCleanSlate() {
             <div>
               <h1 class="text-xl font-extrabold text-white">{{ displayName }}</h1>
               <p class="mt-0.5 text-sm text-slate-400">{{ user?.email }}</p>
-              <p v-if="profile?.username" class="mt-0.5 text-xs text-slate-500">@{{ profile.username }}</p>
             </div>
           </div>
 
@@ -240,10 +237,6 @@ async function confirmCleanSlate() {
               <p class="mt-1 text-sm font-semibold text-slate-800">{{ profile?.lastName || '—' }}</p>
             </div>
           </div>
-          <div class="px-6 py-4">
-            <p class="text-xs font-bold uppercase tracking-wider text-slate-400">Username</p>
-            <p class="mt-1 text-sm font-semibold text-slate-800">{{ profile?.username ? '@' + profile.username : '—' }}</p>
-          </div>
           <div class="grid grid-cols-2 gap-4 px-6 py-4">
             <div>
               <p class="text-xs font-bold uppercase tracking-wider text-slate-400">Learning Style</p>
@@ -276,12 +269,6 @@ async function confirmCleanSlate() {
               <label class="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-400">Last name</label>
               <input v-model="form.lastName" type="text" class="input" placeholder="Smith" />
             </div>
-          </div>
-
-          <!-- Username -->
-          <div>
-            <label class="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-400">Username</label>
-            <input v-model="form.username" type="text" class="input" placeholder="janesmith" />
           </div>
 
           <!-- Learning style -->
