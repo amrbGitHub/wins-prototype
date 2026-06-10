@@ -46,7 +46,8 @@ router.get('/llm-config', async (req, res) => {
       keyStoredFor: slots,
     })
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -69,7 +70,8 @@ router.put('/llm-config', async (req, res) => {
     await setLlmConfig(patch)
     res.json({ ok: true })
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -134,7 +136,8 @@ router.get('/users', async (req, res) => {
     })
     res.json(result)
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -201,7 +204,8 @@ router.get('/users/:userId', async (req, res) => {
       })),
     })
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -253,7 +257,8 @@ router.delete('/users/:userId', async (req, res) => {
 
     res.json({ ok: true, results })
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 

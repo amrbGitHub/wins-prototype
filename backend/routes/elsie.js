@@ -96,7 +96,8 @@ router.post('/chat', verifyToken, async (req, res) => {
       systemArgs: { nameStr, goalsCtx, programsCtx, reflectionCtx, todayCtx },
     })
   } catch (err) {
-    if (!res.headersSent) res.status(500).json({ error: err.message })
+    console.error('[elsie/chat]', err?.message)
+    if (!res.headersSent) res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -108,7 +109,7 @@ router.post('/preview-redaction', verifyToken, async (req, res) => {
     const { text = '', entityHints = [] } = req.body || {}
     const result = redactFromHints(String(text), entityHints)
     res.json(result)
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' }) }
 })
 
 // Global wipe — drops every pseudonym registry row for this user. Cascades to
@@ -121,7 +122,7 @@ router.post('/clear-pseudonyms', verifyToken, async (req, res) => {
       .eq('user_id', req.userId)
     if (error) throw error
     res.json({ deleted: count ?? 0 })
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' }) }
 })
 
 
