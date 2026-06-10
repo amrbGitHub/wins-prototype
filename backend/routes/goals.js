@@ -22,7 +22,8 @@ router.get('/', verifyToken, async (req, res) => {
     if (error) throw error
     res.json(data.map(dbGoalToShape))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -55,7 +56,8 @@ router.post('/', verifyToken, async (req, res) => {
     if (error) throw error
     res.status(201).json(dbGoalToShape(data))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -96,7 +98,8 @@ router.post('/transfer', verifyToken, async (req, res) => {
 
     res.json({ goals: inserted.map(dbGoalToShape) })
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -118,7 +121,8 @@ router.patch('/bulk-status', verifyToken, async (req, res) => {
     if (error) throw error
     res.json({ ok: true })
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -190,7 +194,8 @@ router.post('/rollover', verifyToken, async (req, res) => {
 
     res.json({ ok: true, transferred, shelvedCount: shelfIds.length })
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -205,7 +210,8 @@ router.delete('/:id', verifyToken, async (req, res) => {
     if (error) throw error
     res.status(204).send()
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -245,7 +251,8 @@ router.patch('/:id', verifyToken, async (req, res) => {
     if (!data) return res.status(404).json({ error: 'Goal not found' })
     res.json(dbGoalToShape(data))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -294,7 +301,8 @@ Return ONLY valid JSON:
 
     res.json(dbGoalToShape(updated))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 

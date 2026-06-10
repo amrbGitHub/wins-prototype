@@ -43,7 +43,8 @@ router.get('/', verifyToken, async (req, res) => {
     }
     res.json(mapProfile(data))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -61,7 +62,8 @@ router.get('/stats', verifyToken, async (req, res) => {
     )
     res.json({ goalsMet, totalWins })
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -87,7 +89,8 @@ router.post('/', verifyToken, async (req, res) => {
     if (error) throw error
     res.json(mapProfile(data))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 

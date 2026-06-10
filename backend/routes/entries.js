@@ -19,7 +19,8 @@ router.get('/', verifyToken, async (req, res) => {
     if (error) throw error
     res.json(data.map(dbRowToEntry))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -44,7 +45,8 @@ router.post('/', verifyToken, async (req, res) => {
     if (error) throw error
     res.status(201).json(dbRowToEntry(data))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -67,7 +69,8 @@ router.patch('/:id/analysis', verifyToken, async (req, res) => {
     if (!data) return res.status(404).json({ error: 'Entry not found' })
     res.json(dbRowToEntry(data))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -92,7 +95,8 @@ router.patch('/:id', verifyToken, async (req, res) => {
     if (!data) return res.status(404).json({ error: 'Entry not found' })
     res.json(dbRowToEntry(data))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -107,7 +111,8 @@ router.delete('/:id', verifyToken, async (req, res) => {
     if (error) throw error
     res.status(204).send()
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 

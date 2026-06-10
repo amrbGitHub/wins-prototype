@@ -248,6 +248,16 @@ function onTextEnter(e) {
             <RefreshCw class="h-2.5 w-2.5" aria-hidden="true" />Retry
           </button>
         </div>
+
+        <!-- Voice privacy notice (cybersec audit Finding #14). Speech is
+             transcribed locally when Whisper is available and via your
+             browser's native engine otherwise; the resulting text is
+             pseudonymized before any AI call. No audio is retained. -->
+        <p class="mt-2 text-[10px] text-slate-400 text-center max-w-[260px] leading-snug">
+          Voice is transcribed in your browser; the text (with names
+          pseudonymized) is sent to the AI. No audio is stored.
+          AI responses can be wrong — please review before acting.
+        </p>
       </div>
     </template>
 
@@ -321,6 +331,10 @@ function onTextEnter(e) {
             <Send class="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
+        <!-- AI accuracy disclaimer (cybersec audit Finding #16). -->
+        <p class="mt-1.5 text-[10px] text-slate-400 text-center leading-snug">
+          LC can make mistakes. Check important info before relying on it.
+        </p>
       </div>
     </template>
 

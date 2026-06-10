@@ -628,6 +628,12 @@ function relTime(ts) {
               <Send class="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
+          <!-- AI accuracy disclaimer (cybersec audit Finding #16). -->
+          <p class="mx-auto max-w-2xl mt-2 text-[11px] text-slate-400 text-center leading-snug">
+            LC can make mistakes. Check important info before relying on it.
+            Voice input is transcribed in your browser; names are pseudonymized
+            before any AI call and no audio is stored.
+          </p>
         </div>
       </template>
 

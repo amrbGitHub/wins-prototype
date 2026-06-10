@@ -21,8 +21,12 @@ const ALLOWED_ORIGINS = [
     .split(',').map(s => s.trim().replace(/\/$/, '')).filter(Boolean),
 ]
 
+// Cybersec audit Finding #2: we used to unconditionally allow requests with
+// no Origin header (curl, server-to-server). That's a blanket CORS bypass
+// for any tool that omits the header. Now: in production, no Origin = reject.
+// Dev still allows it so local curl/Postman testing keeps working.
 function originAllowed(origin) {
-  if (!origin) return true // curl / server-to-server
+  if (!origin) return process.env.NODE_ENV !== 'production'
   const o = origin.replace(/\/$/, '')
   return ALLOWED_ORIGINS.some(pattern =>
     pattern.startsWith('*.') ? o.endsWith(pattern.slice(1)) : o === pattern
