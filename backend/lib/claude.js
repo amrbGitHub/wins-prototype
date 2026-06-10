@@ -7,33 +7,31 @@
 //     long-ish and identical across turns, so caching saves ~80% of input cost.
 //   - Streaming is exposed as an async generator yielding text deltas, matching
 //     the shape `routes/elsie.js` already expects from `ollamaChatStream`.
-//   - Model + temperature defaults are tuned for L&D coaching: Haiku 4.5 is
-//     cheap+capable, temp 0.4 is conversational but not unhinged.
+//   - Configuration (base URL, API key, model ids, sampling) comes from
+//     `llmConfig` which reads from app_config in DB with env-var fallback. The
+//     admin LLM-provider UI writes to that table; this module picks up changes
+//     within one cache TTL (or immediately when the admin save invalidates).
 
 const Anthropic = require('@anthropic-ai/sdk').default || require('@anthropic-ai/sdk')
+const { getLlmConfig } = require('./llmConfig')
 
-const DEFAULT_MODEL       = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001'
-const DEFAULT_MAX_TOKENS  = Number(process.env.ANTHROPIC_MAX_TOKENS || 1024)
-const DEFAULT_TEMPERATURE = Number(process.env.ANTHROPIC_TEMPERATURE || 0.4)
-
-let _client = null
-function getClient() {
-  if (_client) return _client
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) {
+// Cache the Anthropic client by (baseURL, apiKey) so we rebuild only when
+// either changes. Constructing a client is cheap, but the SDK keeps a tiny
+// keep-alive pool we'd rather not churn on every turn.
+let _clientCache = { baseURL: null, apiKey: null, client: null }
+function getClient(cfg) {
+  if (!cfg.apiKey) {
     throw new Error(
-      'ANTHROPIC_API_KEY is not set in env. Get one from https://console.anthropic.com/ and add to backend/.env'
+      'No LLM API key configured. Set ANTHROPIC_API_KEY in .env, or save one in the Admin → LLM Provider page.'
     )
   }
-  // ANTHROPIC_BASE_URL lets us point the SDK at any Anthropic-compatible
-  // endpoint (e.g. DeepSeek's https://api.deepseek.com/anthropic). Unset →
-  // SDK uses Anthropic's default URL. Combined with ANTHROPIC_MODEL, this is
-  // how we swap providers without touching code.
-  const opts = { apiKey }
-  const baseURL = process.env.ANTHROPIC_BASE_URL
-  if (baseURL) opts.baseURL = baseURL
-  _client = new Anthropic(opts)
-  return _client
+  if (_clientCache.client && _clientCache.apiKey === cfg.apiKey && _clientCache.baseURL === (cfg.baseUrl || '')) {
+    return _clientCache.client
+  }
+  const opts = { apiKey: cfg.apiKey }
+  if (cfg.baseUrl) opts.baseURL = cfg.baseUrl
+  _clientCache = { baseURL: cfg.baseUrl || '', apiKey: cfg.apiKey, client: new Anthropic(opts) }
+  return _clientCache.client
 }
 
 // Async generator yielding typed events as the model streams:
@@ -47,11 +45,12 @@ async function* claudeChatStream({
   system,
   messages,
   tools = undefined,
-  model = DEFAULT_MODEL,
-  maxTokens = DEFAULT_MAX_TOKENS,
-  temperature = DEFAULT_TEMPERATURE,
+  model,        // override; defaults to cfg.chatModel
+  maxTokens,    // override; defaults to cfg.maxTokens
+  temperature,  // override; defaults to cfg.temperature
 }) {
-  const client = getClient()
+  const cfg = await getLlmConfig()
+  const client = getClient(cfg)
 
   // Cache the system prompt — it's stable across turns in a conversation.
   // cache_control on the last system block tells Anthropic to cache up to here.
@@ -60,9 +59,9 @@ async function* claudeChatStream({
     : system
 
   const stream = await client.messages.stream({
-    model,
-    max_tokens: maxTokens,
-    temperature,
+    model:        model       || cfg.chatModel,
+    max_tokens:   maxTokens   ?? cfg.maxTokens,
+    temperature:  temperature ?? cfg.temperature,
     system: systemBlocks,
     messages,
     ...(tools ? { tools } : {}),
@@ -97,24 +96,25 @@ async function* claudeChatStream({
   if (collectedTools.length) yield { type: 'tools', tools: collectedTools }
 }
 
-// Non-streaming helper for short, deterministic tasks (e.g. the future summary
+// Non-streaming helper for short, deterministic tasks (e.g. the summary
 // updater). Returns the full text response.
 async function claudeChat({
   system,
   messages,
-  model = DEFAULT_MODEL,
-  maxTokens = DEFAULT_MAX_TOKENS,
-  temperature = DEFAULT_TEMPERATURE,
+  model,
+  maxTokens,
+  temperature,
 }) {
-  const client = getClient()
+  const cfg = await getLlmConfig()
+  const client = getClient(cfg)
   const systemBlocks = typeof system === 'string'
     ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
     : system
 
   const resp = await client.messages.create({
-    model,
-    max_tokens: maxTokens,
-    temperature,
+    model:        model       || cfg.chatModel,
+    max_tokens:   maxTokens   ?? cfg.maxTokens,
+    temperature:  temperature ?? cfg.temperature,
     system: systemBlocks,
     messages,
   })
@@ -122,4 +122,11 @@ async function claudeChat({
   return textBlocks.map(b => b.text).join('')
 }
 
-module.exports = { claudeChat, claudeChatStream }
+// Resolve the summary model id from runtime config. Used by the summary
+// updater to route to a cheaper model than the chat path.
+async function getSummaryModel() {
+  const cfg = await getLlmConfig()
+  return cfg.summaryModel || cfg.chatModel
+}
+
+module.exports = { claudeChat, claudeChatStream, getSummaryModel }

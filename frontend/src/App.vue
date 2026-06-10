@@ -6,7 +6,7 @@ import { thisMonthLocal } from './lib/dates.js'
 import {
   Trophy, BookOpen, CalendarDays, Target, Brain, Layers,
   User, LogOut, Menu, X, Wifi, WifiOff, ChevronRight,
-  Bell, Sparkles, Home as HomeIcon,
+  Bell, Sparkles, Home as HomeIcon, Shield,
 } from 'lucide-vue-next'
 import HomeView        from './components/Home.vue'
 import Elsie           from './components/Elsie.vue'
@@ -20,6 +20,7 @@ import ReviewModal     from './components/ReviewModal.vue'
 import OnboardingModal from './components/OnboardingModal.vue'
 import UserProfile     from './components/UserProfile.vue'
 import AuthPage        from './components/AuthPage.vue'
+import AdminPage       from './components/AdminPage.vue'
 
 const { user, loading, signOut, onAuthEvent } = useAuth()
 const { apiFetch, apiFetchPublic } = useApi()
@@ -49,10 +50,14 @@ const tabColorMap = {
 const currentTabLabel = computed(() =>
   currentView.value === 'profile'
     ? 'Profile'
+    : currentView.value === 'admin'
+    ? 'Admin'
     : currentView.value === 'elsie'
     ? 'LC'
     : (tabs.find(t => t.id === currentView.value)?.label ?? 'Wins')
 )
+
+const isAdmin = computed(() => profile.value?.role === 'admin')
 
 const activeTabColor = computed(() =>
   tabs.find(t => t.id === currentView.value)?.color ?? 'teal'
@@ -451,6 +456,16 @@ onUnmounted(() => clearInterval(_statusTimer))
         </button>
 
         <button
+          v-if="isAdmin"
+          @click="navigate('admin')"
+          class="nav-item group"
+          :class="{ active: currentView === 'admin' }"
+        >
+          <Shield class="h-4 w-4 shrink-0" :class="currentView === 'admin' ? 'text-teal-300' : ''" />
+          <span class="text-sm font-medium">Admin</span>
+        </button>
+
+        <button
           @click="signOut"
           class="nav-item group"
           style="color:rgba(255,255,255,0.35)"
@@ -547,6 +562,9 @@ onUnmounted(() => clearInterval(_statusTimer))
         v-else-if="currentView === 'profile'"
         :profile="profile"
         @updated="onProfileUpdated"
+      />
+      <AdminPage
+        v-else-if="currentView === 'admin' && isAdmin"
       />
     </div>
 

@@ -1,6 +1,6 @@
 const { Router } = require('express')
 const { supabase } = require('../config')
-const { verifyToken } = require('../middleware/auth')
+const { verifyToken, isAdminEmail } = require('../middleware/auth')
 
 const router = Router()
 
@@ -9,14 +9,16 @@ function mapProfile(row) {
     id:            row.id,
     firstName:     row.first_name,
     lastName:      row.last_name,
-    username:      row.username,
     learningStyle: row.learning_style,
     aiPersonality: row.ai_personality,
     onboardedAt:   row.onboarded_at,
+    role:          row.role || 'user',
   }
 }
 
-// GET /api/profile — fetch the current user's profile (null if not set up yet)
+// GET /api/profile — fetch the current user's profile (null if not set up yet).
+// If the caller is on the admin email allowlist, force role='admin' on the
+// response and lazily reconcile the DB column so the cached value matches.
 router.get('/', verifyToken, async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -25,7 +27,21 @@ router.get('/', verifyToken, async (req, res) => {
       .eq('user_id', req.userId)
       .single()
     if (error && error.code !== 'PGRST116') throw error   // PGRST116 = no rows
-    res.json(data ? mapProfile(data) : null)
+
+    const adminByEmail = isAdminEmail(req.userEmail)
+
+    if (!data) {
+      // No profile row yet (user hasn't onboarded). Still report admin-ness
+      // so the frontend can show the Admin link before onboarding completes.
+      return res.json(adminByEmail ? { role: 'admin' } : null)
+    }
+
+    // Lazy reconcile: if email allowlist says admin but DB column lags, fix it.
+    if (adminByEmail && data.role !== 'admin') {
+      await supabase.from('profiles').update({ role: 'admin' }).eq('user_id', req.userId)
+      data.role = 'admin'
+    }
+    res.json(mapProfile(data))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -52,7 +68,7 @@ router.get('/stats', verifyToken, async (req, res) => {
 // POST /api/profile — create or update profile
 router.post('/', verifyToken, async (req, res) => {
   try {
-    const { firstName, lastName, username, learningStyle, aiPersonality } = req.body || {}
+    const { firstName, lastName, learningStyle, aiPersonality } = req.body || {}
     const { data, error } = await supabase
       .from('profiles')
       .upsert(
@@ -60,7 +76,6 @@ router.post('/', verifyToken, async (req, res) => {
           user_id:       req.userId,
           first_name:    firstName?.trim()    || null,
           last_name:     lastName?.trim()     || null,
-          username:      username?.trim()     || null,
           learning_style: learningStyle       || null,
           ai_personality: aiPersonality       || null,
           onboarded_at:  new Date().toISOString(),
