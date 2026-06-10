@@ -28,8 +28,15 @@ const {
   fetchPersonSummaries, extractPseudonymsFromText, buildReverseMappings,
   updateSummaries,
 } = require('../lib/summaries')
-const { LC_TOOLS } = require('../lib/tools')
+const { LC_TOOLS, isServerResolvedTool } = require('../lib/tools')
+const { tavilySearch, formatResultsForModel } = require('../lib/search')
 const { logMemory } = require('../lib/memory')
+
+// Cap on how many server-resolved tool loops we'll run per turn. Prevents a
+// model that's enthusiastic about searching from racking up a long chain
+// (and the user's wait). 3 is plenty: search → refine → search again is the
+// realistic upper bound; anything more is wheel-spinning.
+const MAX_TOOL_HOPS = 3
 
 const router = Router()
 
@@ -294,17 +301,109 @@ async function handleTurn({ res, userId, conversationId, chatMessages, skipNames
 
   logMemory('before-llm')
 
+  // 7b. Tool loop: the model may emit server-resolved tools (search_web) we
+  // run mid-turn before its final answer. We loop up to MAX_TOOL_HOPS,
+  // appending each call's tool_use + tool_result to the working history.
+  // Frontend-executed tools (create_goal, log_win, etc.) bubble up only
+  // from the FINAL hop — earlier hops shouldn't act before research lands.
+  let workingMessages = claudeMessages
   let fullPseudoText = ''
-  let rawTools = []
+  let finalFrontendTools = []
+  const citations = []
 
-  for await (const event of claudeChatStream({ system, messages: claudeMessages, tools: LC_TOOLS })) {
-    if (event.type === 'text')       fullPseudoText += event.text
-    else if (event.type === 'tools') rawTools = event.tools
+  for (let hop = 0; hop <= MAX_TOOL_HOPS; hop++) {
+    let turnText = ''
+    let turnTools = []
+    let turnThinking = []
+    for await (const event of claudeChatStream({ system, messages: workingMessages, tools: LC_TOOLS })) {
+      if (event.type === 'text')          turnText += event.text
+      else if (event.type === 'tools')    turnTools = event.tools
+      else if (event.type === 'thinking') turnThinking = event.blocks
+    }
+
+    // Each hop's text overwrites — the final hop's prose is what the user sees.
+    fullPseudoText = turnText
+
+    const serverCalls   = turnTools.filter(t => isServerResolvedTool(t.name))
+    const frontendCalls = turnTools.filter(t => !isServerResolvedTool(t.name))
+    finalFrontendTools  = frontendCalls
+
+    if (!serverCalls.length) break
+
+    // Budget cap reached: the model still wants to search but we won't let it.
+    // Without intervention we'd return an empty response (model emitted tools,
+    // not prose). Close the loop with synthetic "budget exhausted" tool_results
+    // so the conversation state is valid, then do one more call WITHOUT tools
+    // to force a written synthesis from the citations we already gathered.
+    if (hop === MAX_TOOL_HOPS) {
+      const capAssistantBlocks = [...turnThinking]
+      if (turnText) capAssistantBlocks.push({ type: 'text', text: turnText })
+      const capResultBlocks = []
+      serverCalls.forEach((call, i) => {
+        const id = `srv_cap_${i}`
+        capAssistantBlocks.push({ type: 'tool_use', id, name: call.name, input: call.input || {} })
+        capResultBlocks.push({
+          type: 'tool_result',
+          tool_use_id: id,
+          content: 'Search budget exhausted for this turn. Do not request more searches — synthesize your final answer for the user from the results already gathered above, citing them as [1], [2], etc.',
+        })
+      })
+      workingMessages = [
+        ...workingMessages,
+        { role: 'assistant', content: capAssistantBlocks },
+        { role: 'user',      content: capResultBlocks },
+      ]
+      let synthText = ''
+      for await (const event of claudeChatStream({ system, messages: workingMessages })) {
+        if (event.type === 'text') synthText += event.text
+      }
+      if (synthText) fullPseudoText = synthText
+      // finalFrontendTools stays as whatever the prior hop produced; the
+      // synthesis pass runs without tools so no new actions arise here.
+      break
+    }
+
+    // Resolve server-side calls and append matching tool_use + tool_result
+    // blocks to the working history so the next model call sees the loop closed.
+    // Thinking blocks MUST come first in the assistant turn and be passed back
+    // verbatim with their signature — required by the Anthropic API whenever
+    // extended thinking is enabled and a tool_use turn is being continued.
+    const assistantBlocks = [...turnThinking]
+    if (turnText) assistantBlocks.push({ type: 'text', text: turnText })
+    const toolResultBlocks = []
+    for (let i = 0; i < serverCalls.length; i++) {
+      const call = serverCalls[i]
+      const toolUseId = `srv_${hop}_${i}`
+      assistantBlocks.push({ type: 'tool_use', id: toolUseId, name: call.name, input: call.input || {} })
+      let resultText
+      if (call.name === 'search_web') {
+        try {
+          const sr = await tavilySearch(call.input?.query || '', { maxResults: call.input?.maxResults })
+          resultText = formatResultsForModel(sr)
+          for (const r of sr.results) {
+            // Dedupe by URL; first occurrence wins.
+            if (r.url && !citations.some(c => c.url === r.url)) {
+              citations.push({ title: r.title, url: r.url, snippet: r.snippet })
+            }
+          }
+        } catch (err) {
+          resultText = `Search failed: ${err.message}. Answer from general knowledge and tell the user web search is unavailable right now.`
+        }
+      } else {
+        resultText = `Unknown server-resolved tool "${call.name}".`
+      }
+      toolResultBlocks.push({ type: 'tool_result', tool_use_id: toolUseId, content: resultText })
+    }
+    workingMessages = [
+      ...workingMessages,
+      { role: 'assistant', content: assistantBlocks },
+      { role: 'user',      content: toolResultBlocks },
+    ]
   }
 
-  // 8. Convert tool_use blocks into actions, rehydrate text fields, resolve
-  // refs to real UUIDs against the user's goals/programs.
-  const pseudonymizedActions = rawTools.map(t => ({ type: t.name, ...(t.input || {}) }))
+  // 8. Convert frontend tool_use blocks into actions, rehydrate text fields,
+  // resolve refs to real UUIDs against the user's goals/programs.
+  const pseudonymizedActions = finalFrontendTools.map(t => ({ type: t.name, ...(t.input || {}) }))
   const actionsWithRealNames = pseudonymizedActions.map(a => rehydrateAction(a, rehydrationMappings))
   const { actions, dropped } = resolveActions(actionsWithRealNames, goals, programs)
 
@@ -332,9 +431,10 @@ async function handleTurn({ res, userId, conversationId, chatMessages, skipNames
 
   logMemory('turn:end')
 
-  // 10. Single JSON response with the full rehydrated message + resolved actions.
+  // 10. Single JSON response with the full rehydrated message + resolved
+  // actions + any citations gathered from server-resolved search calls.
   const fullMessage = rehydrateText(fullPseudoText, rehydrationMappings)
-  res.json({ message: fullMessage, actions, dropped })
+  res.json({ message: fullMessage, actions, dropped, citations })
 }
 
 module.exports = router

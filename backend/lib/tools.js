@@ -1,13 +1,26 @@
-// Action tools for LC, exposed to Claude/DeepSeek in Anthropic tool-call format.
+// Action tools for LC, exposed to the LLM in Anthropic tool-call format
+// (adapters translate to OpenAI / Gemini equivalents).
 //
-// The model can choose to invoke any of these alongside its prose response.
-// Each emitted tool_use becomes an action in the chat response; the frontend
-// executes it via the existing CRUD endpoints. On the NEXT turn, the gateway
-// reconstructs synthetic tool_use + tool_result pairs in history so the model
-// sees concrete proof the call already ran and does not re-emit it.
+// Two execution models live side-by-side:
+//
+// 1. Frontend-executed tools (create_goal, update_goal, delete_goal, log_win,
+//    create_program, navigate). The model emits one; the response goes back
+//    to the frontend; the frontend hits the CRUD endpoint. On the NEXT turn,
+//    the gateway reconstructs synthetic tool_use + tool_result pairs in
+//    history so the model sees concrete proof prior calls executed.
+//
+// 2. Server-resolved tools (search_web). The gateway runs the call mid-turn,
+//    appends the assistant tool_use + user tool_result inline, and calls the
+//    model again — looping until the model emits no more server-resolved
+//    tools (capped at MAX_TOOL_HOPS). Lets the model ground its final
+//    answer in the search results rather than waiting a full turn for them.
 //
 // Text fields in any input contain pseudonyms (Person_4F2C, Org_AD92, ...)
 // — the gateway rehydrates them back to real names before dispatching.
+// search_web queries are an exception: they MUST be PII-free at the source
+// so we never leak real names to Tavily.
+
+const SERVER_RESOLVED_TOOL_NAMES = new Set(['search_web'])
 
 const LC_TOOLS = [
   {
@@ -105,6 +118,30 @@ const LC_TOOLS = [
   },
 
   {
+    name: 'search_web',
+    description:
+      "Search the open web for current L&D research, frameworks, or facts you " +
+      "aren't confident about. Use this BEFORE citing claims that could be out " +
+      "of date, when the user asks for sources, or when a specific number / " +
+      "study would strengthen the answer. The server runs the search and feeds " +
+      "results back to you in the SAME turn — you'll see the results and can " +
+      "cite them in your final prose. " +
+      "CRITICAL: queries must be PII-free — never include personal names, " +
+      "organization names, or place names. Phrase around the concept instead " +
+      "(e.g. 'manager reinforcement post-training transfer research', not " +
+      "'how is Person_4F2C's cohort doing'). Pseudonyms have no meaning to " +
+      "search engines and would leak real names if rehydrated.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Plain-English web search query, PII-free, 3–12 words.' },
+        maxResults: { type: 'integer', minimum: 1, maximum: 10, description: 'How many results to return (default 5).' },
+      },
+      required: ['query'],
+    },
+  },
+
+  {
     name: 'navigate',
     description:
       "Suggest moving to a specific page in the app. Unlike other actions this " +
@@ -122,4 +159,8 @@ const LC_TOOLS = [
   },
 ]
 
-module.exports = { LC_TOOLS }
+function isServerResolvedTool(name) {
+  return SERVER_RESOLVED_TOOL_NAMES.has(name)
+}
+
+module.exports = { LC_TOOLS, isServerResolvedTool, SERVER_RESOLVED_TOOL_NAMES }

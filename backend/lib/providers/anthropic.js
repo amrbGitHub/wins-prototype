@@ -37,26 +37,48 @@ async function* chatStream({ system, messages, tools, model, maxTokens, temperat
   })
 
   const collectedTools = []
+  // Thinking blocks must be echoed back verbatim (with their signature) when
+  // the next request continues a tool loop — otherwise the API rejects with
+  // "content[].thinking in the thinking mode must be passed back". We collect
+  // them here and surface them as a single event for the caller to forward.
+  const collectedThinking = []
   let currentTool = null
   let currentJson = ''
+  let currentThinking = null
   for await (const event of stream) {
-    if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
-      currentTool = { name: event.content_block.name, input: null }
-      currentJson = ''
+    if (event.type === 'content_block_start') {
+      if (event.content_block?.type === 'tool_use') {
+        currentTool = { name: event.content_block.name, input: null }
+        currentJson = ''
+      } else if (event.content_block?.type === 'thinking') {
+        currentThinking = { type: 'thinking', thinking: '', signature: '' }
+      } else if (event.content_block?.type === 'redacted_thinking') {
+        collectedThinking.push({ type: 'redacted_thinking', data: event.content_block.data })
+      }
     } else if (event.type === 'content_block_delta') {
       if (event.delta?.type === 'text_delta') {
         const t = event.delta.text
         if (t) yield { type: 'text', text: t }
       } else if (event.delta?.type === 'input_json_delta' && currentTool) {
         currentJson += event.delta.partial_json || ''
+      } else if (event.delta?.type === 'thinking_delta' && currentThinking) {
+        currentThinking.thinking += event.delta.thinking || ''
+      } else if (event.delta?.type === 'signature_delta' && currentThinking) {
+        currentThinking.signature += event.delta.signature || ''
       }
-    } else if (event.type === 'content_block_stop' && currentTool) {
-      try { currentTool.input = JSON.parse(currentJson || '{}') } catch { currentTool.input = {} }
-      collectedTools.push(currentTool)
-      currentTool = null
-      currentJson = ''
+    } else if (event.type === 'content_block_stop') {
+      if (currentTool) {
+        try { currentTool.input = JSON.parse(currentJson || '{}') } catch { currentTool.input = {} }
+        collectedTools.push(currentTool)
+        currentTool = null
+        currentJson = ''
+      } else if (currentThinking) {
+        collectedThinking.push(currentThinking)
+        currentThinking = null
+      }
     }
   }
+  if (collectedThinking.length) yield { type: 'thinking', blocks: collectedThinking }
   if (collectedTools.length) yield { type: 'tools', tools: collectedTools }
 }
 

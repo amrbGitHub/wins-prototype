@@ -587,6 +587,19 @@ function relTime(ts) {
                       :action="action" density="compact"
                       @navigate="clickNavigateAction(msgIdx, ai)" />
                   </div>
+
+                  <div v-if="msg.citations?.length && !(streaming && msgIdx === messages.length - 1)"
+                       class="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                    <p class="font-semibold text-slate-500 uppercase tracking-wider text-[10px] mb-1.5">Sources</p>
+                    <ol class="space-y-1 list-decimal list-inside marker:text-slate-400 marker:font-medium">
+                      <li v-for="c in msg.citations" :key="c.url" class="text-slate-700">
+                        <a :href="c.url" target="_blank" rel="noopener noreferrer"
+                           class="text-teal-700 hover:text-teal-900 underline underline-offset-2">
+                          {{ c.title || c.url }}
+                        </a>
+                      </li>
+                    </ol>
+                  </div>
                 </div>
               </div>
               <div v-else class="flex justify-end">

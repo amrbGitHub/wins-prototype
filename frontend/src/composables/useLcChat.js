@@ -285,6 +285,7 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
       message:       result?.message || '',
       actions:       Array.isArray(result?.actions) ? result.actions : [],
       serverDropped: Array.isArray(result?.dropped) ? result.dropped : [],
+      citations:     Array.isArray(result?.citations) ? result.citations : [],
     }
   }
 
@@ -336,9 +337,10 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
     _activeController = controller
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
     try {
-      const { message, actions, serverDropped } = await callAPI(history, controller.signal)
+      const { message, actions, serverDropped, citations } = await callAPI(history, controller.signal)
       messages.value[aiIdx].content = message || messages.value[aiIdx].content
       messages.value[aiIdx].actions = prepareActions(actions)
+      messages.value[aiIdx].citations = citations || []
       scrollBottom()
       if (serverDropped?.length) console.warn('[LC] server dropped actions:', serverDropped)
 

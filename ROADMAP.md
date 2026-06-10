@@ -27,12 +27,6 @@ Audit prompt sizes, summary lengths, and per-turn payloads. Likely targets:
 - Redundant context being resent each turn
 - Tool-call schema verbosity in the system prompt
 
-### Pluggable LLM provider (multi-tenant readiness)
-Let a business bring its own frontier model. Anthropic-compatible is already
-the abstraction; formalize provider config per-org (base URL, key, model id,
-summary model id) and surface it in admin settings. Keep the redaction layer
-provider-agnostic.
-
 ### Admin page — v2 powers
 v1 shipped on `lc-modular`: role-based gating, LLM provider config, user
 inspection (entries/goals/programs/reflections/LC chats), user deletion.
@@ -84,6 +78,11 @@ prospective customers are the primary audience.
 
 ## Done (recent)
 
+- Multi-provider LLM support: Anthropic + OpenAI + Google Gemini adapters
+  behind a canonical message format. OpenAI adapter also covers any
+  OpenAI-compatible endpoint (Mistral/Together/Groq/Fireworks/vLLM/LM Studio)
+  via custom baseUrl. Per-provider encrypted key slots so switching doesn't
+  require re-entering keys.
 - Admin v1 on `lc-modular`: role-gated admin page, LLM provider config
   (env-fallback + DB-overridable + encrypted API key), user inspection
   (entries/goals/programs/reflections/LC chats), user delete with
