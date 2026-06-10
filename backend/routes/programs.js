@@ -44,7 +44,8 @@ router.get('/', async (req, res) => {
     if (error) throw error
     res.json(data.map(dbProgramToShape))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -61,7 +62,8 @@ router.get('/:id', async (req, res) => {
     if (!data) return res.status(404).json({ error: 'Program not found' })
     res.json(dbProgramToShape(data))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -100,7 +102,8 @@ router.post('/', async (req, res) => {
     if (error) throw error
     res.status(201).json(dbProgramToShape(data))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -154,7 +157,8 @@ router.patch('/:id', async (req, res) => {
     if (!data) return res.status(404).json({ error: 'Program not found' })
     res.json(dbProgramToShape(data))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -171,7 +175,8 @@ router.delete('/:id', async (req, res) => {
     if (error) throw error
     res.status(204).send()
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -215,7 +220,8 @@ router.get('/:id/timeline', async (req, res) => {
       items,
     })
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 

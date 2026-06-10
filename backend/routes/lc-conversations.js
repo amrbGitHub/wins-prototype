@@ -49,7 +49,8 @@ router.get('/', verifyToken, async (req, res) => {
     if (error) throw error
     res.json(data.map(row => dbRowToConversation(row, { includeMessages: false })))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -66,7 +67,8 @@ router.get('/:id', verifyToken, async (req, res) => {
     if (!data) return res.status(404).json({ error: 'Conversation not found' })
     res.json(dbRowToConversation(data))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -91,7 +93,8 @@ router.post('/', verifyToken, async (req, res) => {
     if (error) throw error
     res.status(201).json(dbRowToConversation(data))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -126,7 +129,8 @@ router.post('/:id/messages', verifyToken, async (req, res) => {
     if (error) throw error
     res.json(dbRowToConversation(data))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -156,7 +160,8 @@ router.patch('/:id', verifyToken, async (req, res) => {
     if (!data) return res.status(404).json({ error: 'Conversation not found' })
     res.json(dbRowToConversation(data))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -180,7 +185,8 @@ router.delete('/:id', verifyToken, async (req, res) => {
 
     res.status(204).send()
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -267,7 +273,8 @@ router.post('/:id/auto-title', verifyToken, async (req, res) => {
     if (usedFallback) result._fallback = true     // diagnostic for frontend logging
     res.json(result)
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 

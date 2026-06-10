@@ -74,7 +74,8 @@ router.post('/clean-slate', verifyToken, async (req, res) => {
 
     res.json({ ok: true, results })
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 

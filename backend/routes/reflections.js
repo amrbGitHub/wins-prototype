@@ -100,7 +100,8 @@ When done:
     res.end()
   } catch (err) {
     if (!res.headersSent) {
-      res.status(500).json({ error: err.message })
+      console.error('[route-error]', req.method, req.originalUrl, err?.message)
+      res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
     } else {
       res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`)
       res.end()
@@ -137,7 +138,8 @@ router.get('/', verifyToken, async (req, res) => {
     if (error) throw error
     res.json(data.map(reflectionToShape))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 
@@ -161,7 +163,8 @@ router.post('/', verifyToken, async (req, res) => {
     if (error) throw error
     res.json(reflectionToShape(data))
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
   }
 })
 

@@ -19,15 +19,23 @@ async function ollamaChat({ messages, temperature = 0.4, json = false, jsonSchem
       body: JSON.stringify(body),
     })
   } catch (err) {
-    const cause = err.cause?.message ?? err.cause ?? ''
-    throw new Error(
-      `Ollama unreachable at ${OLLAMA_BASE_URL}: ${err.message}${cause ? ` (${cause})` : ''}`
-    )
+    // Cybersec audit Finding #1: never echo OLLAMA_BASE_URL (the ngrok tunnel)
+    // back to callers. Log the detail server-side; throw a generic message
+    // that the global error handler can safely surface to clients.
+    console.error('[ollama] unreachable:', OLLAMA_BASE_URL, err?.message, err?.cause?.message || err?.cause || '')
+    const e = new Error('AI service temporarily unavailable.')
+    e.status = 503
+    e.publicMessage = 'AI service temporarily unavailable.'
+    throw e
   }
 
   if (!resp.ok) {
-    const text = await resp.text()
-    throw new Error(`Ollama error ${resp.status} at ${OLLAMA_BASE_URL}/chat/completions: ${text}`)
+    const text = await resp.text().catch(() => '')
+    console.error('[ollama] non-2xx:', resp.status, text.slice(0, 500))
+    const e = new Error(`AI service returned ${resp.status}.`)
+    e.status = 502
+    e.publicMessage = 'AI service is having trouble right now. Please try again shortly.'
+    throw e
   }
 
   return resp.json()
@@ -88,15 +96,20 @@ async function* ollamaChatStream({ messages, temperature = 0.4, json = false, js
       body: JSON.stringify(body),
     })
   } catch (err) {
-    const cause = err.cause?.message ?? err.cause ?? ''
-    throw new Error(
-      `Ollama unreachable at ${OLLAMA_BASE_URL}: ${err.message}${cause ? ` (${cause})` : ''}`
-    )
+    console.error('[ollama-stream] unreachable:', OLLAMA_BASE_URL, err?.message, err?.cause?.message || err?.cause || '')
+    const e = new Error('AI service temporarily unavailable.')
+    e.status = 503
+    e.publicMessage = 'AI service temporarily unavailable.'
+    throw e
   }
 
   if (!resp.ok) {
-    const text = await resp.text()
-    throw new Error(`Ollama error ${resp.status} at ${OLLAMA_BASE_URL}/chat/completions: ${text}`)
+    const text = await resp.text().catch(() => '')
+    console.error('[ollama-stream] non-2xx:', resp.status, text.slice(0, 500))
+    const e = new Error(`AI service returned ${resp.status}.`)
+    e.status = 502
+    e.publicMessage = 'AI service is having trouble right now. Please try again shortly.'
+    throw e
   }
 
   const reader = resp.body.getReader()
