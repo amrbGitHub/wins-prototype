@@ -676,6 +676,7 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
     // to expose. Components fall back to the browser TTS instantly if
     // ElevenLabs is unavailable.
     ttsSupported: tts.isSupported,
+    ttsLevels:    tts.levels,       // reactive [0,1] array — drives the speaking-orb visualizer
     // stt passthrough — for showing model-load progress and detecting Whisper backend
     sttSupported:    computed(() => stt.isSupported),
     sttBackend:      stt.backend,        // 'native' | 'whisper' | 'none'

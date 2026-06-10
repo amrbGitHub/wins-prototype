@@ -49,7 +49,7 @@ const {
   messages, error, streaming, chatEl,
   convoStatus, convoTranscript,
   lastAiMsg, lastActions, convoStatusLabel, thinkingVerb,
-  ttsSupported,
+  ttsSupported, ttsLevels,
   sttSupported, sttBackend, sttLoading, sttLoadProgress,
   reset, stopAll,
   runTextGreeting, sendTextMessage,
@@ -59,6 +59,11 @@ const {
 } = lc
 
 const voiceCapable = computed(() => sttSupported.value && ttsSupported.value)
+// Mean of the live audio bins — drives the orb's halo glow during speech.
+const avgLevel = computed(() => {
+  const arr = ttsLevels.value || []
+  return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
+})
 // Only Whisper (STT) has a loadable model now — ElevenLabs is server-side
 // and the browser TTS fallback is instant.
 const voiceModelLoading  = computed(() => sttLoading.value)
@@ -473,21 +478,18 @@ function relTime(ts) {
 
           <button v-else @click="toggleConvoMic" :disabled="convoStatus === 'processing'"
             :aria-label="convoStatus === 'listening' ? 'Stop listening' : (convoStatus === 'speaking' ? 'Interrupt and speak' : 'Tap to speak')"
-            class="relative h-40 w-40 rounded-full transition-transform duration-200 focus:outline-none hover:scale-105 active:scale-95 disabled:cursor-default disabled:hover:scale-100">
-            <span class="absolute inset-0 rounded-full"
-              :class="{
-                'animate-ping bg-teal-500 opacity-20':    convoStatus === 'listening',
-                'animate-ping bg-emerald-400 opacity-20': convoStatus === 'speaking',
-              }" />
-            <span class="absolute inset-2 rounded-full shadow-2xl transition-all duration-500"
-              :style="convoStatus === 'listening'
-                ? 'background:linear-gradient(135deg,#0d5f6b,#0e8095);box-shadow:0 0 56px rgba(13,95,107,0.55)'
-                : convoStatus === 'speaking'
-                ? 'background:linear-gradient(135deg,#059669,#0d9488);box-shadow:0 0 56px rgba(5,150,105,0.50)'
-                : convoStatus === 'processing'
-                ? 'background:#e2e8f0'
-                : 'background:linear-gradient(135deg,#334155,#475569);box-shadow:0 0 28px rgba(0,0,0,0.12)'" />
-            <span class="absolute inset-0 flex items-center justify-center" aria-hidden="true">
+            class="lc-orb relative h-40 w-40 rounded-full transition-transform duration-200 focus:outline-none hover:scale-105 active:scale-95 disabled:cursor-default disabled:hover:scale-100"
+            :class="{
+              'lc-orb--listening':  convoStatus === 'listening',
+              'lc-orb--speaking':   convoStatus === 'speaking',
+              'lc-orb--processing': convoStatus === 'processing',
+              'lc-orb--idle':       convoStatus === 'idle',
+            }"
+            :style="`--lvl:${avgLevel}`">
+            <span class="lc-orb__halo absolute -inset-4 rounded-full pointer-events-none" />
+            <span class="lc-orb__aurora absolute inset-0 rounded-full overflow-hidden" />
+            <span class="lc-orb__glass absolute inset-2 rounded-full" />
+            <span class="absolute inset-0 flex items-center justify-center z-10" aria-hidden="true">
               <svg v-if="convoStatus === 'idle' || convoStatus === 'listening'"
                 class="h-14 w-14 transition-colors duration-300"
                 :class="convoStatus === 'listening' ? 'text-white' : 'text-slate-400'"
@@ -495,12 +497,14 @@ function relTime(ts) {
                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
                 <path d="M19 10v2a7 7 0 0 1-14 0v-2H3v2a9 9 0 0 0 8 8.94V23h2v-2.06A9 9 0 0 0 21 12v-2h-2z"/>
               </svg>
+              <!-- Live audio visualizer — see Elsie.vue for the design note. -->
               <span v-else-if="convoStatus === 'speaking'" class="flex h-11 items-end gap-1.5">
-                <span class="w-2 animate-bounce rounded-full bg-white" style="height:35%;animation-delay:0ms"/>
-                <span class="w-2 animate-bounce rounded-full bg-white" style="height:75%;animation-delay:90ms"/>
-                <span class="w-2 animate-bounce rounded-full bg-white" style="height:55%;animation-delay:180ms"/>
-                <span class="w-2 animate-bounce rounded-full bg-white" style="height:95%;animation-delay:60ms"/>
-                <span class="w-2 animate-bounce rounded-full bg-white" style="height:45%;animation-delay:150ms"/>
+                <span v-for="(lvl, i) in ttsLevels" :key="i"
+                  class="w-2 rounded-full bg-white transition-all duration-75 ease-out"
+                  :class="{ 'animate-bounce': lvl === 0 }"
+                  :style="lvl > 0
+                    ? `height:${15 + lvl * 85}%`
+                    : `height:${[35,75,55,95,45][i]}%;animation-delay:${[0,90,180,60,150][i]}ms`" />
               </span>
               <svg v-else class="h-11 w-11 animate-spin text-slate-400" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
@@ -630,3 +634,105 @@ function relTime(ts) {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* ── LC voice orb ──────────────────────────────────────────────────────────
+   See Elsie.vue for the design note. This is the same recipe at the
+   full-page size — slightly bigger halo offset and stronger inner shadow
+   so it reads as a substantial centerpiece on the conversation page.
+   ────────────────────────────────────────────────────────────────────── */
+
+.lc-orb__halo,
+.lc-orb__aurora,
+.lc-orb__glass {
+  transition: opacity 350ms ease, background 400ms ease, box-shadow 400ms ease;
+}
+.lc-orb__halo   { z-index: 0; }
+.lc-orb__aurora { z-index: 1; }
+.lc-orb__glass  { z-index: 2; }
+
+.lc-orb__halo {
+  background: conic-gradient(
+    from 0deg,
+    rgba(45, 212, 191, 0.55),
+    rgba(99, 102, 241, 0.55),
+    rgba(217, 70, 239, 0.55),
+    rgba(45, 212, 191, 0.55)
+  );
+  filter: blur(20px);
+  opacity: 0;
+  transform: scale(0.96);
+}
+
+.lc-orb__aurora {
+  background: conic-gradient(
+    from var(--rot, 0deg),
+    #2dd4bf 0deg,
+    #6366f1 110deg,
+    #d946ef 220deg,
+    #2dd4bf 360deg
+  );
+  animation: lcOrbSpin 9s linear infinite;
+  opacity: 0;
+}
+
+@keyframes lcOrbSpin {
+  to { transform: rotate(360deg); }
+}
+
+.lc-orb__glass {
+  background:
+    radial-gradient(circle at 30% 28%, rgba(255,255,255,0.34), rgba(255,255,255,0) 55%),
+    linear-gradient(160deg, #0f172a 0%, #1e293b 60%, #0b1220 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.10),
+    inset 0 -14px 32px rgba(0,0,0,0.50),
+    0 10px 30px rgba(2, 6, 23, 0.40);
+}
+
+/* Idle */
+.lc-orb--idle .lc-orb__aurora { opacity: 0.25; animation-duration: 22s; }
+.lc-orb--idle .lc-orb__halo   { opacity: 0; }
+.lc-orb--idle .lc-orb__glass {
+  background:
+    radial-gradient(circle at 30% 28%, rgba(255,255,255,0.22), rgba(255,255,255,0) 55%),
+    linear-gradient(160deg, #1e293b 0%, #334155 60%, #1e293b 100%);
+}
+
+/* Listening */
+.lc-orb--listening .lc-orb__aurora { opacity: 0.95; animation-duration: 7s; }
+.lc-orb--listening .lc-orb__halo {
+  opacity: 0.55;
+  transform: scale(1.02);
+  animation: lcOrbHaloBreath 2.6s ease-in-out infinite;
+}
+
+@keyframes lcOrbHaloBreath {
+  0%, 100% { opacity: 0.5;  transform: scale(1.00); }
+  50%      { opacity: 0.78; transform: scale(1.06); }
+}
+
+/* Processing */
+.lc-orb--processing .lc-orb__aurora { opacity: 0.35; animation-play-state: paused; }
+.lc-orb--processing .lc-orb__halo   { opacity: 0.18; }
+.lc-orb--processing .lc-orb__glass {
+  background:
+    radial-gradient(circle at 30% 28%, rgba(255,255,255,0.18), rgba(255,255,255,0) 55%),
+    linear-gradient(160deg, #334155 0%, #475569 60%, #334155 100%);
+}
+
+/* Speaking */
+.lc-orb--speaking .lc-orb__aurora { opacity: 1; animation-duration: 5.5s; }
+.lc-orb--speaking .lc-orb__halo {
+  opacity: calc(0.35 + var(--lvl, 0) * 0.55);
+  transform: scale(calc(1 + var(--lvl, 0) * 0.10));
+  filter: blur(calc(20px + var(--lvl, 0) * 10px));
+  transition: opacity 70ms linear, transform 70ms linear, filter 120ms linear;
+  animation: lcOrbHaloBreathQuick 2.2s ease-in-out infinite;
+}
+
+@keyframes lcOrbHaloBreathQuick {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.0); }
+  50%      { box-shadow: 0 0 36px 6px rgba(99, 102, 241, 0.20); }
+}
+</style>
