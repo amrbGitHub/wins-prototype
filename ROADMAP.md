@@ -59,9 +59,26 @@ OAuth-link a user's LinkedIn / Email (Gmail?) / Slack so the celebration
 message draft from the Celebrate tab can be posted directly. Per platform:
 auth flow, scopes, post endpoint, error/retry UX.
 
-### Remove username tag on accounts
-Strip the user-visible username field/handle. Confirm scope (display only? DB
-column? auth.users metadata?) before touching.
+### User-facing FAQ / docs site
+A real docs surface for testers and prospective businesses. Top-of-mind
+content:
+
+- Supported LLM providers and the hard requirement: native tool calling.
+  Concrete examples of what works (Claude Haiku 4.5, GPT-4o-mini, Gemini
+  2.0 Flash) and what doesn't (GPT-3.5, small local models, anything
+  pre-function-calling).
+- Privacy model: what crosses the wire vs what stays local, the
+  pseudonymization pipeline, where the encryption keys live, what happens
+  when an admin runs `clean-slate`.
+- Admin operations: env-var allowlist, LLM provider config, user
+  inspection + deletion.
+- L&D framing: who LC is for, what the Journal / Celebrate / LC chat
+  surfaces each do, and the "win attribution" principle.
+
+Format TBD — could be a `/docs` route in the app, a separate Astro/VitePress
+site, or just a sharp README expansion. Decide based on whether testers vs
+prospective customers are the primary audience.
+
 
 ---
 

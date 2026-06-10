@@ -11,6 +11,7 @@ const { Router } = require('express')
 const { supabase } = require('../config')
 const { verifyToken, requireAdmin } = require('../middleware/auth')
 const { getLlmConfig, setLlmConfig } = require('../lib/llmConfig')
+const { PROVIDERS, isSupportedProvider } = require('../lib/providers')
 
 const router = Router()
 
@@ -22,13 +23,27 @@ router.use(verifyToken, requireAdmin)
 router.get('/llm-config', async (req, res) => {
   try {
     const cfg = await getLlmConfig()
+    // Also report which provider slots have a stored key, so the UI can
+    // tell the admin "Anthropic key stored, OpenAI key missing" etc.
+    const { supabase } = require('../config')
+    const { data } = await supabase
+      .from('app_config').select('value').eq('key', 'llm').maybeSingle()
+    const byProvider = data?.value?.apiKeyEncByProvider || {}
+    const legacy    = data?.value?.apiKeyEnc
+    const slots = {}
+    for (const p of PROVIDERS) {
+      slots[p] = !!byProvider[p] || (p === (data?.value?.providerType || 'anthropic') && !!legacy)
+    }
     res.json({
+      providerType: cfg.providerType || 'anthropic',
+      providers:    PROVIDERS,
       baseUrl:      cfg.baseUrl      || '',
       chatModel:    cfg.chatModel    || '',
       summaryModel: cfg.summaryModel || '',
       temperature:  cfg.temperature,
       maxTokens:    cfg.maxTokens,
       hasApiKey:    !!cfg.apiKey,
+      keyStoredFor: slots,
     })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -39,8 +54,12 @@ router.get('/llm-config', async (req, res) => {
 // empty-string apiKey explicitly does NOT clear — to clear, pass null.
 router.put('/llm-config', async (req, res) => {
   try {
-    const { baseUrl, chatModel, summaryModel, apiKey, temperature, maxTokens } = req.body || {}
+    const { providerType, baseUrl, chatModel, summaryModel, apiKey, temperature, maxTokens } = req.body || {}
+    if (providerType !== undefined && !isSupportedProvider(providerType)) {
+      return res.status(400).json({ error: `Unsupported providerType "${providerType}". Use one of: ${PROVIDERS.join(', ')}.` })
+    }
     const patch = {}
+    if (providerType !== undefined) patch.providerType = providerType
     if (baseUrl      !== undefined) patch.baseUrl      = baseUrl
     if (chatModel    !== undefined) patch.chatModel    = chatModel
     if (summaryModel !== undefined) patch.summaryModel = summaryModel

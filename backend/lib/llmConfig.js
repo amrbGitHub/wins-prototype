@@ -67,12 +67,34 @@ let _cache = null
 let _cacheLoadedAt = 0
 const CACHE_TTL_MS = 60_000  // stale-after-1min; admin saves invalidate immediately
 
+// Provider-specific env-var fallbacks. The legacy ANTHROPIC_* vars still
+// work and map onto the Anthropic provider. New deployments can use
+// LLM_PROVIDER + provider-specific keys (OPENAI_API_KEY / GOOGLE_API_KEY).
 function envDefaults() {
+  const providerType = (process.env.LLM_PROVIDER || 'anthropic').toLowerCase()
+  let apiKey, baseUrl, chatModel, summaryModel
+  if (providerType === 'openai') {
+    apiKey       = process.env.OPENAI_API_KEY  || ''
+    baseUrl      = process.env.OPENAI_BASE_URL || ''
+    chatModel    = process.env.OPENAI_MODEL    || 'gpt-4o-mini'
+    summaryModel = process.env.SUMMARY_MODEL   || chatModel
+  } else if (providerType === 'google') {
+    apiKey       = process.env.GOOGLE_API_KEY     || ''
+    baseUrl      = ''                              // Gemini SDK doesn't take a baseUrl
+    chatModel    = process.env.GOOGLE_MODEL       || 'gemini-2.0-flash'
+    summaryModel = process.env.SUMMARY_MODEL      || chatModel
+  } else {
+    apiKey       = process.env.ANTHROPIC_API_KEY || ''
+    baseUrl      = process.env.ANTHROPIC_BASE_URL || ''
+    chatModel    = process.env.ANTHROPIC_MODEL    || 'claude-haiku-4-5-20251001'
+    summaryModel = process.env.SUMMARY_MODEL      || process.env.ANTHROPIC_MODEL || ''
+  }
   return {
-    baseUrl:      process.env.ANTHROPIC_BASE_URL || '',
-    chatModel:    process.env.ANTHROPIC_MODEL    || 'claude-haiku-4-5-20251001',
-    summaryModel: process.env.SUMMARY_MODEL      || process.env.ANTHROPIC_MODEL || '',
-    apiKey:       process.env.ANTHROPIC_API_KEY  || '',
+    providerType,
+    baseUrl,
+    chatModel,
+    summaryModel,
+    apiKey,
     temperature:  Number(process.env.ANTHROPIC_TEMPERATURE || 0.4),
     maxTokens:    Number(process.env.ANTHROPIC_MAX_TOKENS  || 1024),
   }
@@ -91,8 +113,19 @@ async function getLlmConfig() {
       .from('app_config').select('value').eq('key', CONFIG_KEY).maybeSingle()
     if (error && error.code !== 'PGRST116') throw error
     const v = data?.value || {}
-    const apiKey = v.apiKeyEnc ? decryptSystem(v.apiKeyEnc) : defaults.apiKey
+    const providerType = v.providerType || defaults.providerType
+    // Resolve the API key in this priority: provider-specific encrypted slot
+    // (apiKeyEncByProvider[providerType]) → legacy single-slot (apiKeyEnc) →
+    // env defaults for the active provider. The per-provider slot lets an
+    // admin preconfigure all three providers and switch with a dropdown
+    // without re-entering keys each time.
+    const perProviderEnc = v.apiKeyEncByProvider?.[providerType]
+    const legacyEnc      = v.apiKeyEnc
+    const apiKey = perProviderEnc ? decryptSystem(perProviderEnc)
+                  : legacyEnc     ? decryptSystem(legacyEnc)
+                  :                 defaults.apiKey
     _cache = {
+      providerType,
       baseUrl:      v.baseUrl      ?? defaults.baseUrl,
       chatModel:    v.chatModel    ?? defaults.chatModel,
       summaryModel: v.summaryModel ?? defaults.summaryModel,
@@ -112,26 +145,37 @@ async function getLlmConfig() {
   }
 }
 
-// Write config. Pass any subset of the fields. apiKey semantics:
-//   - undefined → keep existing
-//   - null      → clear stored key (revert to env fallback)
-//   - string    → encrypt and store
+// Write config. Pass any subset of the fields.
+//
+// apiKey semantics: keyed against the providerType in the patch (or the
+// existing providerType if not changing). undefined keeps the existing key
+// for that provider; null clears it; a string encrypts and stores it.
 async function setLlmConfig(patch) {
   const { data: existing } = await supabase
     .from('app_config').select('value').eq('key', CONFIG_KEY).maybeSingle()
   const prev = existing?.value || {}
   const next = { ...prev }
 
+  if (patch.providerType !== undefined) next.providerType = patch.providerType
   if (patch.baseUrl      !== undefined) next.baseUrl      = patch.baseUrl      || ''
   if (patch.chatModel    !== undefined) next.chatModel    = patch.chatModel    || ''
   if (patch.summaryModel !== undefined) next.summaryModel = patch.summaryModel || ''
   if (typeof patch.temperature === 'number') next.temperature = patch.temperature
   if (typeof patch.maxTokens   === 'number') next.maxTokens   = patch.maxTokens
 
+  // Migrate the legacy single-slot apiKeyEnc into the per-provider map the
+  // first time we write. Lets older deployments switch providers without
+  // re-entering their existing key.
+  if (!next.apiKeyEncByProvider) next.apiKeyEncByProvider = {}
+  if (prev.apiKeyEnc && !next.apiKeyEncByProvider[next.providerType || prev.providerType || 'anthropic']) {
+    next.apiKeyEncByProvider[next.providerType || prev.providerType || 'anthropic'] = prev.apiKeyEnc
+  }
+
+  const slot = patch.providerType || next.providerType || prev.providerType || 'anthropic'
   if (patch.apiKey === null) {
-    delete next.apiKeyEnc
+    delete next.apiKeyEncByProvider[slot]
   } else if (typeof patch.apiKey === 'string' && patch.apiKey.trim()) {
-    next.apiKeyEnc = encryptSystem(patch.apiKey.trim())
+    next.apiKeyEncByProvider[slot] = encryptSystem(patch.apiKey.trim())
   }
 
   const { error } = await supabase
