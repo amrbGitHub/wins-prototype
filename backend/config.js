@@ -40,8 +40,4 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
-// ── Ollama ────────────────────────────────────────────────────────────────────
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1'
-const OLLAMA_MODEL    = process.env.OLLAMA_MODEL    || 'llama3.2'
-
-module.exports = { PORT, supabase, originAllowed, OLLAMA_BASE_URL, OLLAMA_MODEL }
+module.exports = { PORT, supabase, originAllowed }

@@ -1,7 +1,7 @@
 const { Router } = require('express')
 const { supabase } = require('../config')
 const { verifyToken } = require('../middleware/auth')
-const { ollamaChat, getContent } = require('../lib/ollama')
+const { analyzerChat } = require('../lib/analyzer')
 
 const router = Router()
 
@@ -226,8 +226,8 @@ router.post('/:id/auto-title', verifyToken, async (req, res) => {
     if (msgs.length < 2) return res.status(400).json({ error: 'Not enough conversation yet' })
 
     // Try LLM-summarized title first; fall back to first-user-message heuristic
-    // on ANY failure (Ollama down, CUDA error, empty response, etc.) so the
-    // chat ends up with *some* meaningful title instead of staying "New chat".
+    // on ANY failure (provider outage, empty response, etc.) so the chat ends
+    // up with *some* meaningful title instead of staying "New chat".
     let title = null
     let usedFallback = false
 
@@ -236,24 +236,21 @@ router.post('/:id/auto-title', verifyToken, async (req, res) => {
         `${m.role === 'user' ? 'User' : 'LC'}: ${(m.content || '').slice(0, 400)}`
       ).join('\n')
 
-      const completion = await ollamaChat({
-        messages: [
-          { role: 'system', content:
-            'Summarize the topic of this conversation in 3 to 6 words. ' +
-            'Return JUST the title — no quotes, no punctuation at the end, no "Title:" prefix, no explanation. ' +
-            'Examples of good titles: "May cohort retro", "Workshop pacing problem", "Log Alex\'s feedback win", "Plan Module 3 design". ' +
-            'Examples of bad titles: "A conversation about X", "User wants to...", "Discussion of goals".'
-          },
-          { role: 'user', content: transcript },
-        ],
+      const text = await analyzerChat({
+        system:
+          'Summarize the topic of this conversation in 3 to 6 words. ' +
+          'Return JUST the title — no quotes, no punctuation at the end, no "Title:" prefix, no explanation. ' +
+          'Examples of good titles: "May cohort retro", "Workshop pacing problem", "Log Alex\'s feedback win", "Plan Module 3 design". ' +
+          'Examples of bad titles: "A conversation about X", "User wants to...", "Discussion of goals".',
+        user: transcript,
         temperature: 0.3,
+        maxTokens: 64,
       })
-      title = getContent(completion).trim()
-      title = title.replace(/^["'`]+|["'`]+$/g, '').replace(/[.!?]+$/, '').trim()
+      title = text.trim().replace(/^["'`]+|["'`]+$/g, '').replace(/[.!?]+$/, '').trim()
       if (!title) throw new Error('empty title from model')
     } catch (llmErr) {
-      // Ollama failed (CUDA error, etc.) — log and fall back deterministically
-      console.warn('[auto-title] Ollama unavailable, using heuristic fallback:', llmErr.message)
+      // Model call failed — log and fall back deterministically
+      console.warn('[auto-title] provider unavailable, using heuristic fallback:', llmErr.message)
       title = fallbackTitleFrom(msgs)
       usedFallback = true
       if (!title) return res.status(500).json({ error: 'No content to derive title from' })

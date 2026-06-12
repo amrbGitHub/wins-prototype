@@ -1,7 +1,7 @@
 const { Router } = require('express')
 const { supabase } = require('../config')
 const { verifyToken } = require('../middleware/auth')
-const { ollamaChat, getContent, parseJSON } = require('../lib/ollama')
+const { analyzerChat, parseJSON } = require('../lib/analyzer')
 const { dbGoalToShape, GOAL_STATUSES, normaliseGoalStatus } = require('../lib/shapes')
 
 const router = Router()
@@ -267,27 +267,19 @@ router.post('/:id/steps', verifyToken, async (req, res) => {
       .single()
     if (fetchErr || !goal) return res.status(404).json({ error: 'Goal not found' })
 
-    const completion = await ollamaChat({
-      messages: [
-        {
-          role: 'system',
-          content: `
+    const text = await analyzerChat({
+      system: `
 You are a practical planning coach. Break a goal down into 3–5 clear, concrete, actionable steps.
 Each step should be something the person can actually do — not vague advice.
 Return ONLY valid JSON:
 {"steps":[{"id":"step-1","title":"...","completed":false},{"id":"step-2","title":"...","completed":false}]}
-          `.trim(),
-        },
-        {
-          role: 'user',
-          content: `Goal: ${goal.title}\nDescription: ${goal.description || ''}\nSuccess criteria: ${goal.success_criteria || ''}\n\nBreak this into 3–5 concrete steps.`,
-        },
-      ],
+      `.trim(),
+      user: `Goal: ${goal.title}\nDescription: ${goal.description || ''}\nSuccess criteria: ${goal.success_criteria || ''}\n\nBreak this into 3–5 concrete steps.`,
       temperature: 0.4,
       json: true,
     })
 
-    const parsed = parseJSON(getContent(completion))
+    const parsed = parseJSON(text)
     const steps  = Array.isArray(parsed.steps) ? parsed.steps : []
 
     const { data: updated, error: updateErr } = await supabase

@@ -71,8 +71,13 @@ app.use('/api/admin',       require('./routes/admin'))
 app.use(errorHandler)
 
 // ── Start ─────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  const { OLLAMA_BASE_URL, OLLAMA_MODEL } = require('./config')
+app.listen(PORT, async () => {
   console.log(`Backend running on http://localhost:${PORT}`)
-  console.log(`Ollama: ${OLLAMA_MODEL} @ ${OLLAMA_BASE_URL}`)
+  try {
+    const { getLlmConfig } = require('./lib/llmConfig')
+    const cfg = await getLlmConfig()
+    console.log(`LLM: ${cfg.providerType || '(none)'} / ${cfg.chatModel || '(no model)'}${cfg.apiKey ? '' : ' [no API key]'}`)
+  } catch (err) {
+    console.warn('LLM config unavailable at boot:', err.message)
+  }
 })

@@ -1,7 +1,7 @@
 const { Router } = require('express')
 const { supabase } = require('../config')
 const { verifyToken } = require('../middleware/auth')
-const { ollamaChatStream, parseChatResponse } = require('../lib/ollama')
+const { analyzerChatStream, parseChatResponse } = require('../lib/analyzer')
 const { toMonthLabel } = require('../lib/shapes')
 
 const router = Router()
@@ -72,9 +72,11 @@ When done:
 
     let fullContent = ''
     try {
-      for await (const delta of ollamaChatStream({
-        messages: [{ role: 'system', content: system }, ...chatMessages],
+      for await (const delta of analyzerChatStream({
+        system,
+        messages: chatMessages,
         temperature: 0.6,
+        maxTokens: 2048,
         json: true,
       })) {
         fullContent += delta

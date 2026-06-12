@@ -1,19 +1,23 @@
 const { Router } = require('express')
-const { OLLAMA_BASE_URL } = require('../config')
+const { getLlmConfig } = require('../lib/llmConfig')
 
 const router = Router()
 
-// GET /api/health — returns Ollama reachability status
+// GET /api/health — LLM provider readiness.
+// We don't ping the provider here (costs money, adds latency on every page
+// load). "online" means: a provider is selected AND an API key is configured.
+// A real outage during a chat call will surface its own error.
 router.get('/', async (req, res) => {
   try {
-    const resp = await fetch(`${OLLAMA_BASE_URL}/models`, {
-      method: 'GET',
-      headers: { 'ngrok-skip-browser-warning': 'true' },
-      signal: AbortSignal.timeout(4000), // 4 s timeout — fast fail
+    const cfg = await getLlmConfig()
+    const ready = !!(cfg.providerType && cfg.apiKey)
+    res.json({
+      llm:      ready ? 'online' : 'offline',
+      provider: cfg.providerType || null,
+      model:    cfg.chatModel    || null,
     })
-    res.json({ ollama: resp.ok ? 'online' : 'offline' })
   } catch {
-    res.json({ ollama: 'offline' })
+    res.json({ llm: 'offline', provider: null, model: null })
   }
 })
 

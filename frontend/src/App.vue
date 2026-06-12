@@ -116,7 +116,7 @@ let _statusTimer = null
 async function checkLlmStatus() {
   try {
     const data = await apiFetchPublic('/api/health')
-    llmStatus.value = data?.ollama === 'online' ? 'online' : 'offline'
+    llmStatus.value = data?.llm === 'online' ? 'online' : 'offline'
   } catch {
     llmStatus.value = 'offline'
   }

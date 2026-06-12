@@ -8,6 +8,18 @@ Living list of deliverables for the Celebrating Wins app. Source of truth for
 
 ## In flight / next up
 
+### Main app UX fixes
+Friction points surfaced from real use:
+- **Home roadmap card** — current presentation is confusing; either redesign
+  or drop in favor of a clearer "what's next" surface.
+- **LC mic vs stop control** — two buttons in similar position read as one
+  ambiguous toggle. Disambiguate state + intent.
+- **LC post-action routing** — after LC executes a tool (e.g. "make a goal"),
+  auto-navigate the user to the page where the result lives (Goals,
+  Reflections, etc.) so the effect is visible.
+- **In-app FAQ** — fold the user-facing FAQ surface into the app rather than
+  a separate docs site, so help lives next to the feature it explains.
+
 ### Quality of L&D support from the LLM
 Improve substance of LC's responses for trainers. Candidates:
 - Citations / sources surfaced inline
@@ -78,6 +90,14 @@ prospective customers are the primary audience.
 
 ## Done (recent)
 
+- LC quality pass: Tavily web search tool wired into LC with clickable inline
+  citations, prompt iteration, and a budget-cap synthesis pass so LC never
+  returns sources-without-prose at MAX_TOOL_HOPS.
+- LC voice: ElevenLabs TTS with abort-safe playback, reactive Web Audio
+  visualizer driving an aurora orb redesign.
+- Cybersecurity audit remediation (cybersec-fixes branch): 11 fixed, 3
+  mitigated, 2 accepted, 1 deferred; 0 npm vulnerabilities. Full per-finding
+  response report in `docs/`.
 - Multi-provider LLM support: Anthropic + OpenAI + Google Gemini adapters
   behind a canonical message format. OpenAI adapter also covers any
   OpenAI-compatible endpoint (Mistral/Together/Groq/Fireworks/vLLM/LM Studio)

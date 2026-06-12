@@ -1,5 +1,5 @@
 const { Router } = require('express')
-const { ollamaChat, getContent, parseJSON } = require('../lib/ollama')
+const { analyzerChat, parseJSON } = require('../lib/analyzer')
 const { verifyToken } = require('../middleware/auth')
 
 const router = Router()
@@ -41,15 +41,13 @@ Return JSON in this exact shape:
 `.trim()
 
 async function extractWins(systemExtra, userContent) {
-  const completion = await ollamaChat({
-    messages: [
-      { role: 'system', content: `${WIN_SYSTEM}\n${systemExtra}` },
-      { role: 'user',   content: userContent },
-    ],
+  const text = await analyzerChat({
+    system: `${WIN_SYSTEM}\n${systemExtra}`,
+    user:   userContent,
     temperature: 0.3,
     json: true,
   })
-  const parsed = parseJSON(getContent(completion))
+  const parsed = parseJSON(text)
   return {
     summary: parsed.summary || 'Summary unavailable.',
     wins:    Array.isArray(parsed.wins) ? parsed.wins : [],
@@ -94,11 +92,8 @@ router.post('/draft', verifyToken, async (req, res) => {
     const { win, channel, tone, outcome, recognizeWho } = req.body || {}
     if (!win?.title || !win?.story) return res.status(400).json({ error: 'Missing win.title or win.story' })
 
-    const completion = await ollamaChat({
-      messages: [
-        {
-          role: 'system',
-          content: `
+    const text = await analyzerChat({
+      system: `
 You are a writing assistant for a workplace trainer (L&D professional).
 Ghost-write a celebration message that the TRAINER will send.
 - Write in the TRAINER'S voice, first person ("I wanted to share...", "I'm proud to highlight...").
@@ -107,17 +102,12 @@ Ghost-write a celebration message that the TRAINER will send.
 - Use only the details provided; do not invent names, numbers, or claims not present.
 - Match the requested channel and tone. Keep it ready-to-send.
 Return ONLY the draft text — no markdown fences, no preamble, no sign-off name.
-          `.trim(),
-        },
-        {
-          role: 'user',
-          content: `CHANNEL: ${channel}\nTONE: ${tone}\nOUTCOME: ${outcome}\nRECOGNIZE: ${recognizeWho || '(not provided)'}\n\nWIN:\nTitle: ${win.title}\nStory: ${win.story}\nEvidence: ${win.evidence || ''}\n\nWrite the draft now.`,
-        },
-      ],
+      `.trim(),
+      user: `CHANNEL: ${channel}\nTONE: ${tone}\nOUTCOME: ${outcome}\nRECOGNIZE: ${recognizeWho || '(not provided)'}\n\nWIN:\nTitle: ${win.title}\nStory: ${win.story}\nEvidence: ${win.evidence || ''}\n\nWrite the draft now.`,
       temperature: 0.5,
     })
 
-    res.json({ draft: getContent(completion).trim() })
+    res.json({ draft: text.trim() })
   } catch (err) {
     console.error('[route-error]', req.method, req.originalUrl, err?.message)
     res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
@@ -134,11 +124,8 @@ router.post('/generate-message', verifyToken, async (req, res) => {
       ? `Custom request from the trainer: ${customRequest.trim()}`
       : `Tone: Professional but warm and encouraging — genuine and approachable, not formal.`
 
-    const completion = await ollamaChat({
-      messages: [
-        {
-          role: 'system',
-          content: `
+    const text = await analyzerChat({
+      system: `
 You are a writing assistant for a workplace trainer (L&D professional).
 Ghost-write a celebration message that the TRAINER will send.
 - The message is written in the TRAINER'S voice, in first person.
@@ -148,17 +135,12 @@ Ghost-write a celebration message that the TRAINER will send.
 - The message must be ready to send as-is — no subject lines, no placeholders like [Name].
 - Be authentic and human, not corporate or stiff.
 Return ONLY the message text — no markdown fences, no preamble, no sign-off name.
-          `.trim(),
-        },
-        {
-          role: 'user',
-          content: `WIN TO CELEBRATE:\nTitle: ${win.title}\nStory: ${win.story}\nEvidence: ${win.evidence || ''}\n${win.celebrationIdeas?.length ? `Celebration ideas for context: ${win.celebrationIdeas.join('; ')}` : ''}\n\n${toneInstruction}\n\nWrite the message the trainer will send now.`,
-        },
-      ],
+      `.trim(),
+      user: `WIN TO CELEBRATE:\nTitle: ${win.title}\nStory: ${win.story}\nEvidence: ${win.evidence || ''}\n${win.celebrationIdeas?.length ? `Celebration ideas for context: ${win.celebrationIdeas.join('; ')}` : ''}\n\n${toneInstruction}\n\nWrite the message the trainer will send now.`,
       temperature: 0.6,
     })
 
-    res.json({ draft: getContent(completion).trim() })
+    res.json({ draft: text.trim() })
   } catch (err) {
     console.error('[route-error]', req.method, req.originalUrl, err?.message)
     res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
