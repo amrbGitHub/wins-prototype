@@ -314,11 +314,13 @@ async function handleTurn({ res, userId, conversationId, chatMessages, skipNames
   let finalFrontendTools = []
   const citations = []
 
+  const chatUsageCtx = { userId, conversationId, purpose: 'chat' }
+
   for (let hop = 0; hop <= MAX_TOOL_HOPS; hop++) {
     let turnText = ''
     let turnTools = []
     let turnThinking = []
-    for await (const event of claudeChatStream({ system, messages: workingMessages, tools: LC_TOOLS })) {
+    for await (const event of claudeChatStream({ system, messages: workingMessages, tools: LC_TOOLS, usageContext: chatUsageCtx })) {
       if (event.type === 'text')          turnText += event.text
       else if (event.type === 'tools')    turnTools = event.tools
       else if (event.type === 'thinking') turnThinking = event.blocks
@@ -357,7 +359,7 @@ async function handleTurn({ res, userId, conversationId, chatMessages, skipNames
         { role: 'user',      content: capResultBlocks },
       ]
       let synthText = ''
-      for await (const event of claudeChatStream({ system, messages: workingMessages })) {
+      for await (const event of claudeChatStream({ system, messages: workingMessages, usageContext: chatUsageCtx })) {
         if (event.type === 'text') synthText += event.text
       }
       if (synthText) fullPseudoText = synthText
@@ -421,7 +423,7 @@ async function handleTurn({ res, userId, conversationId, chatMessages, skipNames
   }
   try {
     await updateSummaries({
-      userId, conversationId: null,
+      userId, conversationId,
       pseudonymToRegistryId,
       priorPersonSummaries:     personSummaries,
       priorConversationSummary: null,
@@ -437,6 +439,29 @@ async function handleTurn({ res, userId, conversationId, chatMessages, skipNames
   // 10. Single JSON response with the full rehydrated message + resolved
   // actions + any citations gathered from server-resolved search calls.
   const fullMessage = rehydrateText(fullPseudoText, rehydrationMappings)
+
+  // 10b. Audit capture — store the real vs pseudonymized text for the user
+  // turn and the assistant turn so admins can verify nothing crossed the wire
+  // unredacted. Append-only, conversation-scoped, best-effort.
+  try {
+    const lastUserOrig    = chatMessages[chatMessages.length - 1]
+    const lastUserPseudo  = perMessage[perMessage.length - 1]
+    const lastUserPseudoText = lastUserPseudo
+      ? applyCanonicals(lastUserPseudo.redactedText, lastUserPseudo.mappings, canonicalsByKey)
+      : ''
+    await supabase.from('lc_message_audit').insert({
+      user_id:               userId,
+      conversation_id:       conversationId,
+      turn_index:            chatMessages.length - 1,
+      real_user_text:        lastUserOrig?.content || '',
+      pseudo_user_text:      lastUserPseudoText || '',
+      real_assistant_text:   fullMessage,
+      pseudo_assistant_text: fullPseudoText,
+    })
+  } catch (e) {
+    console.warn('[gateway] audit insert failed (non-fatal):', e.message)
+  }
+
   res.json({ message: fullMessage, actions, dropped, citations })
 }
 

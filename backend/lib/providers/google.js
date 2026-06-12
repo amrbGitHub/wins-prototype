@@ -132,7 +132,15 @@ async function chat({ system, messages, model: modelOverride, maxTokens, tempera
   })
   const contents = messagesToGemini(messages)
   const resp = await model.generateContent({ contents })
-  return resp.response?.text?.() || ''
+  const meta = resp.response?.usageMetadata || {}
+  return {
+    text: resp.response?.text?.() || '',
+    usage: {
+      inputTokens:  meta.promptTokenCount     || 0,
+      outputTokens: meta.candidatesTokenCount || 0,
+      model:        modelName,
+    },
+  }
 }
 
 module.exports = { chatStream, chat, _internal: { messagesToGemini, toolsToGemini } }

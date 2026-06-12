@@ -137,7 +137,14 @@ async function chat({ system, messages, model, maxTokens, temperature }, cfg) {
     temperature: temperature ?? cfg.temperature,
     messages: messagesToOpenAI(messages, system),
   })
-  return resp.choices?.[0]?.message?.content || ''
+  return {
+    text: resp.choices?.[0]?.message?.content || '',
+    usage: {
+      inputTokens:  resp.usage?.prompt_tokens     || 0,
+      outputTokens: resp.usage?.completion_tokens || 0,
+      model:        resp.model || (model || cfg.chatModel),
+    },
+  }
 }
 
 module.exports = { chatStream, chat, _internal: { messagesToOpenAI, toolsToOpenAI } }

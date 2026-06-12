@@ -32,22 +32,24 @@ function buildSystem(system, json) {
 // don't go through that pipeline because the trainer is allowed to see their
 // own learners' names — the pseudonymization story is about what crosses the
 // wire to a third party, not what crosses the function boundary.
-async function analyzerChat({ system, user, messages, temperature = 0.4, maxTokens = 1024, json = false }) {
+async function analyzerChat({ system, user, messages, temperature = 0.4, maxTokens = 1024, json = false, usageContext }) {
   return claudeChat({
     system:   buildSystem(system, json),
     messages: buildMessages({ user, messages }),
     temperature,
     maxTokens,
+    usageContext,
   })
 }
 
 // ── Streaming analyzer chat — async generator yielding delta strings ─────────
-async function* analyzerChatStream({ system, user, messages, temperature = 0.4, maxTokens = 1024, json = false }) {
+async function* analyzerChatStream({ system, user, messages, temperature = 0.4, maxTokens = 1024, json = false, usageContext }) {
   for await (const event of claudeChatStream({
     system:   buildSystem(system, json),
     messages: buildMessages({ user, messages }),
     temperature,
     maxTokens,
+    usageContext,
   })) {
     if (event.type === 'text' && event.text) yield event.text
   }

@@ -40,12 +40,13 @@ Return JSON in this exact shape:
 {"summary":"...","wins":[{"id":"...","title":"...","story":"...","evidence":"...","celebrationIdeas":["...","..."]}]}
 `.trim()
 
-async function extractWins(systemExtra, userContent) {
+async function extractWins(systemExtra, userContent, userId) {
   const text = await analyzerChat({
     system: `${WIN_SYSTEM}\n${systemExtra}`,
     user:   userContent,
     temperature: 0.3,
     json: true,
+    usageContext: { userId, purpose: 'analyzer' },
   })
   const parsed = parseJSON(text)
   return {
@@ -60,7 +61,8 @@ router.post('/analyze', verifyToken, async (req, res) => {
     const { wentWell, wasHard, visibleWin, recognizeWho, outcome } = req.body || {}
     const result = await extractWins(
       'The trainer is writing about their week.',
-      `Weekly check-in input (JSON):\n${JSON.stringify({ wentWell, wasHard, visibleWin, recognizeWho, outcome }, null, 2)}\n\n${WIN_TASK}`
+      `Weekly check-in input (JSON):\n${JSON.stringify({ wentWell, wasHard, visibleWin, recognizeWho, outcome }, null, 2)}\n\n${WIN_TASK}`,
+      req.userId,
     )
     res.json(result)
   } catch (err) {
@@ -77,7 +79,8 @@ router.post('/analyze-journal', verifyToken, async (req, res) => {
     const label = type === 'weekly' ? 'weekly recap' : 'daily journal entry'
     const result = await extractWins(
       `The trainer has written a ${label}.`,
-      `Journal entry (${label}):\n"""\n${text}\n"""\n\n${WIN_TASK}`
+      `Journal entry (${label}):\n"""\n${text}\n"""\n\n${WIN_TASK}`,
+      req.userId,
     )
     res.json(result)
   } catch (err) {
@@ -105,6 +108,7 @@ Return ONLY the draft text — no markdown fences, no preamble, no sign-off name
       `.trim(),
       user: `CHANNEL: ${channel}\nTONE: ${tone}\nOUTCOME: ${outcome}\nRECOGNIZE: ${recognizeWho || '(not provided)'}\n\nWIN:\nTitle: ${win.title}\nStory: ${win.story}\nEvidence: ${win.evidence || ''}\n\nWrite the draft now.`,
       temperature: 0.5,
+      usageContext: { userId: req.userId, purpose: 'analyzer' },
     })
 
     res.json({ draft: text.trim() })
@@ -138,6 +142,7 @@ Return ONLY the message text — no markdown fences, no preamble, no sign-off na
       `.trim(),
       user: `WIN TO CELEBRATE:\nTitle: ${win.title}\nStory: ${win.story}\nEvidence: ${win.evidence || ''}\n${win.celebrationIdeas?.length ? `Celebration ideas for context: ${win.celebrationIdeas.join('; ')}` : ''}\n\n${toneInstruction}\n\nWrite the message the trainer will send now.`,
       temperature: 0.6,
+      usageContext: { userId: req.userId, purpose: 'analyzer' },
     })
 
     res.json({ draft: text.trim() })

@@ -80,6 +80,19 @@ async function* chatStream({ system, messages, tools, model, maxTokens, temperat
   }
   if (collectedThinking.length) yield { type: 'thinking', blocks: collectedThinking }
   if (collectedTools.length) yield { type: 'tools', tools: collectedTools }
+  // Final aggregate so the façade can record token usage. The SDK accumulates
+  // input/output usage on the final message object.
+  try {
+    const finalMsg = await stream.finalMessage()
+    if (finalMsg?.usage) {
+      yield {
+        type: 'usage',
+        inputTokens:  finalMsg.usage.input_tokens  || 0,
+        outputTokens: finalMsg.usage.output_tokens || 0,
+        model:        finalMsg.model || (model || cfg.chatModel),
+      }
+    }
+  } catch { /* usage is best-effort */ }
 }
 
 async function chat({ system, messages, model, maxTokens, temperature }, cfg) {
@@ -92,7 +105,14 @@ async function chat({ system, messages, model, maxTokens, temperature }, cfg) {
     messages,
   })
   const textBlocks = (resp.content || []).filter(b => b.type === 'text')
-  return textBlocks.map(b => b.text).join('')
+  return {
+    text: textBlocks.map(b => b.text).join(''),
+    usage: {
+      inputTokens:  resp.usage?.input_tokens  || 0,
+      outputTokens: resp.usage?.output_tokens || 0,
+      model:        resp.model || (model || cfg.chatModel),
+    },
+  }
 }
 
 module.exports = { chatStream, chat }

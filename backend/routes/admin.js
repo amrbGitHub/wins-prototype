@@ -9,7 +9,7 @@
 
 const { Router } = require('express')
 const { supabase } = require('../config')
-const { verifyToken, requireAdmin } = require('../middleware/auth')
+const { verifyToken, requireAdmin, isAdminEmail } = require('../middleware/auth')
 const { getLlmConfig, setLlmConfig } = require('../lib/llmConfig')
 const { PROVIDERS, isSupportedProvider } = require('../lib/providers')
 
@@ -256,6 +256,134 @@ router.delete('/users/:userId', async (req, res) => {
     }
 
     res.json({ ok: true, results })
+  } catch (err) {
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
+  }
+})
+
+// ── PATCH /api/admin/users/:userId/role — promote or demote ─────────────────
+// Body: { role: 'admin' | 'user' }
+//
+// Safety rails:
+//   - Can't change your own role (locking yourself out is too easy).
+//   - Demoting an env-allowlisted admin is allowed at the DB level but the
+//     allowlist will keep them admin anyway — surface that as a warning
+//     rather than blocking, so the admin understands the env var is the
+//     source of truth.
+router.patch('/users/:userId/role', async (req, res) => {
+  try {
+    const targetId = req.params.userId
+    const nextRole = String(req.body?.role || '').trim()
+    if (!['admin', 'user'].includes(nextRole)) {
+      return res.status(400).json({ error: 'role must be "admin" or "user".' })
+    }
+    if (targetId === req.userId) {
+      return res.status(400).json({ error: 'Cannot change your own role.' })
+    }
+
+    // Fetch the target's email so we can report the env-allowlist warning.
+    const { data: tgtUser, error: tgtErr } = await supabase.auth.admin.getUserById(targetId)
+    if (tgtErr) throw tgtErr
+    if (!tgtUser?.user) return res.status(404).json({ error: 'User not found.' })
+
+    const { error: updateErr } = await supabase
+      .from('profiles')
+      .update({ role: nextRole })
+      .eq('user_id', targetId)
+    if (updateErr) throw updateErr
+
+    const envAllowlisted = isAdminEmail(tgtUser.user.email)
+    const warning = (nextRole === 'user' && envAllowlisted)
+      ? 'This user is in the ADMIN_EMAILS env allowlist. They will remain admin until removed from there.'
+      : null
+
+    res.json({ ok: true, role: nextRole, warning })
+  } catch (err) {
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
+  }
+})
+
+// ── GET /api/admin/users/:userId/usage — LLM token usage (last 30 days) ─────
+// Returns aggregate totals (per purpose) + a 14-day daily breakdown for chart
+// rendering. Cost is left to the UI to compute from per-model rates the admin
+// owns — keeping the backend ignorant of $/token avoids stale price tables.
+router.get('/users/:userId/usage', async (req, res) => {
+  try {
+    const userId = req.params.userId
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const { data, error } = await supabase
+      .from('llm_usage')
+      .select('purpose, provider, model, input_tokens, output_tokens, created_at')
+      .eq('user_id', userId)
+      .gte('created_at', thirtyDaysAgo)
+      .order('created_at', { ascending: false })
+      .limit(5000)
+    if (error) throw error
+
+    // Aggregate by purpose
+    const byPurpose = { chat: { input: 0, output: 0, calls: 0 },
+                       summary: { input: 0, output: 0, calls: 0 },
+                       analyzer: { input: 0, output: 0, calls: 0 } }
+    // Aggregate by model
+    const byModel = new Map()
+    // Daily (last 14 days) for sparkline-friendly chart data
+    const days = new Map()
+
+    for (const r of data || []) {
+      const p = byPurpose[r.purpose] || (byPurpose[r.purpose] = { input: 0, output: 0, calls: 0 })
+      p.input  += r.input_tokens  || 0
+      p.output += r.output_tokens || 0
+      p.calls  += 1
+
+      const mk = `${r.provider}/${r.model}`
+      const m = byModel.get(mk) || { provider: r.provider, model: r.model, input: 0, output: 0, calls: 0 }
+      m.input  += r.input_tokens  || 0
+      m.output += r.output_tokens || 0
+      m.calls  += 1
+      byModel.set(mk, m)
+
+      const day = String(r.created_at).slice(0, 10)
+      const d = days.get(day) || { date: day, input: 0, output: 0 }
+      d.input  += r.input_tokens  || 0
+      d.output += r.output_tokens || 0
+      days.set(day, d)
+    }
+
+    res.json({
+      windowDays: 30,
+      totals: {
+        input:  Object.values(byPurpose).reduce((a, p) => a + p.input,  0),
+        output: Object.values(byPurpose).reduce((a, p) => a + p.output, 0),
+        calls:  Object.values(byPurpose).reduce((a, p) => a + p.calls,  0),
+      },
+      byPurpose,
+      byModel: [...byModel.values()].sort((a, b) => (b.input + b.output) - (a.input + a.output)),
+      daily:   [...days.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-14),
+    })
+  } catch (err) {
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
+  }
+})
+
+// ── GET /api/admin/users/:userId/conversations/:conversationId/audit ────────
+// Returns the per-turn real vs pseudonymized payloads captured by
+// lc_message_audit, so an admin can verify the redaction story on real
+// conversations. Sorted by turn_index ASC for chronological side-by-side view.
+router.get('/users/:userId/conversations/:conversationId/audit', async (req, res) => {
+  try {
+    const { userId, conversationId } = req.params
+    const { data, error } = await supabase
+      .from('lc_message_audit')
+      .select('turn_index, real_user_text, pseudo_user_text, real_assistant_text, pseudo_assistant_text, created_at')
+      .eq('user_id', userId)
+      .eq('conversation_id', conversationId)
+      .order('turn_index', { ascending: true })
+      .limit(200)
+    if (error) throw error
+    res.json({ turns: data || [] })
   } catch (err) {
     console.error('[route-error]', req.method, req.originalUrl, err?.message)
     res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })

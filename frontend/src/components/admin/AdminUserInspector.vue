@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useApi } from '../../composables/useApi.js'
-import { ChevronRight, ArrowLeft, AlertTriangle, Trash2, MessageSquare } from 'lucide-vue-next'
+import { ChevronRight, ArrowLeft, AlertTriangle, Trash2, MessageSquare, ShieldCheck, ShieldOff, BarChart3, Eye } from 'lucide-vue-next'
 
 const { apiFetch } = useApi()
 
@@ -16,7 +16,75 @@ const detailLoading = ref(false)
 const detailError   = ref('')
 
 const expandedChatId = ref(null)
-function toggleChat(id) { expandedChatId.value = expandedChatId.value === id ? null : id }
+function toggleChat(id) {
+  expandedChatId.value = expandedChatId.value === id ? null : id
+  if (expandedChatId.value) loadAuditForChat(expandedChatId.value)
+}
+
+// ── Role management ─────────────────────────────────────────────────────────
+const roleSaving  = ref(false)
+const roleMessage = ref('')
+const roleError   = ref('')
+async function setRole(nextRole) {
+  if (!detail.value) return
+  roleSaving.value = true
+  roleError.value = ''
+  roleMessage.value = ''
+  try {
+    const res = await apiFetch(`/api/admin/users/${selectedId.value}/role`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role: nextRole }),
+    })
+    detail.value.profile = { ...(detail.value.profile || {}), role: nextRole }
+    roleMessage.value = res.warning || (nextRole === 'admin' ? 'Promoted to admin.' : 'Demoted to user.')
+    // Refresh list so the admin chip updates.
+    loadUsers()
+  } catch (e) {
+    roleError.value = e.message || 'Role change failed'
+  } finally {
+    roleSaving.value = false
+  }
+}
+
+// ── LLM usage panel ─────────────────────────────────────────────────────────
+const usage = ref(null)
+const usageLoading = ref(false)
+const usageError   = ref('')
+async function loadUsage() {
+  if (!selectedId.value) return
+  usageLoading.value = true
+  usageError.value = ''
+  try {
+    usage.value = await apiFetch(`/api/admin/users/${selectedId.value}/usage`)
+  } catch (e) {
+    usageError.value = e.message || 'Failed to load usage'
+  } finally {
+    usageLoading.value = false
+  }
+}
+function fmtTokens(n) {
+  if (!n) return '0'
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M'
+  if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'k'
+  return String(n)
+}
+
+// ── Audit (pseudonymized side-by-side) ─────────────────────────────────────
+const auditByChatId = ref({})       // { [conversationId]: { loading, error, turns } }
+async function loadAuditForChat(conversationId) {
+  if (auditByChatId.value[conversationId]?.turns) return
+  auditByChatId.value[conversationId] = { loading: true, error: '', turns: null }
+  try {
+    const res = await apiFetch(
+      `/api/admin/users/${selectedId.value}/conversations/${conversationId}/audit`
+    )
+    auditByChatId.value[conversationId] = { loading: false, error: '', turns: res.turns || [] }
+  } catch (e) {
+    auditByChatId.value[conversationId] = { loading: false, error: e.message || 'Audit fetch failed', turns: [] }
+  }
+}
+const chatViewMode = ref({})  // per-chatId: 'real' | 'sidebyside'
+function setChatView(chatId, mode) { chatViewMode.value = { ...chatViewMode.value, [chatId]: mode } }
 
 const deleting   = ref(false)
 const deleteConfirmTyping = ref('')
@@ -78,8 +146,14 @@ async function openUser(u) {
   detail.value = null
   detailError.value = ''
   detailLoading.value = true
+  usage.value = null
+  auditByChatId.value = {}
+  chatViewMode.value = {}
+  roleMessage.value = ''
+  roleError.value = ''
   try {
     detail.value = await apiFetch(`/api/admin/users/${u.userId}`)
+    loadUsage()  // fetch in parallel; the panel renders independently
   } catch (e) {
     detailError.value = e.message || 'Failed to load user details'
   } finally {
@@ -92,6 +166,8 @@ function back() {
   detail.value = null
   expandedChatId.value = null
   showDeleteUI.value = false
+  usage.value = null
+  auditByChatId.value = {}
 }
 
 function fmtDate(iso) {
@@ -173,7 +249,7 @@ onMounted(loadUsers)
       </div>
 
       <div v-else-if="detail" class="px-5 py-5 space-y-6">
-        <!-- Profile -->
+        <!-- Profile + role controls -->
         <div>
           <p class="text-sm font-semibold text-slate-800 mb-1">
             {{ detail.profile?.firstName
@@ -184,7 +260,73 @@ onMounted(loadUsers)
           <p class="text-xs text-slate-500 mt-1">
             Joined {{ fmtDate(detail.createdAt) }} · Role: <span class="font-semibold text-slate-700">{{ detail.profile?.role || 'user' }}</span>
           </p>
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              v-if="(detail.profile?.role || 'user') !== 'admin'"
+              @click="setRole('admin')"
+              :disabled="roleSaving"
+              class="inline-flex items-center gap-2 rounded-xl bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-xs font-semibold px-3 py-1.5 transition"
+            >
+              <ShieldCheck class="h-3.5 w-3.5" /> Promote to admin
+            </button>
+            <button
+              v-else
+              @click="setRole('user')"
+              :disabled="roleSaving"
+              class="inline-flex items-center gap-2 rounded-xl bg-slate-600 hover:bg-slate-700 disabled:opacity-50 text-white text-xs font-semibold px-3 py-1.5 transition"
+            >
+              <ShieldOff class="h-3.5 w-3.5" /> Demote to user
+            </button>
+            <span v-if="roleMessage" class="text-xs text-slate-600">{{ roleMessage }}</span>
+            <span v-if="roleError" class="text-xs text-rose-600 flex items-center gap-1">
+              <AlertTriangle class="h-3 w-3" /> {{ roleError }}
+            </span>
+          </div>
         </div>
+
+        <!-- LLM usage (last 30 days) -->
+        <section>
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 flex items-center gap-1.5">
+            <BarChart3 class="h-3.5 w-3.5" /> LLM usage (last 30 days)
+          </h3>
+          <div v-if="usageLoading" class="text-xs text-slate-400">Loading usage…</div>
+          <div v-else-if="usageError" class="text-xs text-rose-600">{{ usageError }}</div>
+          <div v-else-if="usage" class="rounded-xl bg-slate-50 px-3 py-3 text-sm space-y-3">
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <p class="text-[10px] uppercase tracking-wider text-slate-500">Calls</p>
+                <p class="text-lg font-bold text-slate-800">{{ usage.totals.calls }}</p>
+              </div>
+              <div>
+                <p class="text-[10px] uppercase tracking-wider text-slate-500">Input</p>
+                <p class="text-lg font-bold text-slate-800">{{ fmtTokens(usage.totals.input) }}</p>
+              </div>
+              <div>
+                <p class="text-[10px] uppercase tracking-wider text-slate-500">Output</p>
+                <p class="text-lg font-bold text-slate-800">{{ fmtTokens(usage.totals.output) }}</p>
+              </div>
+            </div>
+            <div class="border-t border-slate-200 pt-2">
+              <p class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">By purpose</p>
+              <div class="space-y-1">
+                <div v-for="(v, k) in usage.byPurpose" :key="k" class="flex items-center justify-between text-xs">
+                  <span class="font-medium text-slate-700 capitalize">{{ k }}</span>
+                  <span class="text-slate-500">{{ v.calls }} calls · {{ fmtTokens(v.input) }} in · {{ fmtTokens(v.output) }} out</span>
+                </div>
+              </div>
+            </div>
+            <div v-if="usage.byModel?.length" class="border-t border-slate-200 pt-2">
+              <p class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">By model</p>
+              <div class="space-y-1">
+                <div v-for="m in usage.byModel" :key="m.provider + m.model" class="flex items-center justify-between text-xs">
+                  <span class="font-mono text-slate-700">{{ m.provider }}/{{ m.model }}</span>
+                  <span class="text-slate-500">{{ fmtTokens(m.input + m.output) }} tok</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p v-else class="text-xs text-slate-400">No usage data yet.</p>
+        </section>
 
         <!-- Goals -->
         <section>
@@ -252,19 +394,74 @@ onMounted(loadUsers)
                 <ChevronRight class="h-4 w-4 text-slate-400 transition-transform" :class="{ 'rotate-90': expandedChatId === c.id }" />
               </button>
               <div v-if="expandedChatId === c.id" class="px-3 pb-3 space-y-2">
-                <div v-if="!c.messages?.length" class="text-xs text-slate-400 italic">Empty chat.</div>
-                <div
-                  v-for="(m, idx) in c.messages"
-                  :key="idx"
-                  class="rounded-lg px-3 py-2 text-sm"
-                  :class="m.role === 'user' ? 'bg-white border border-slate-200' : 'bg-teal-50 border border-teal-100'"
-                >
-                  <p class="text-[10px] font-bold uppercase tracking-wider mb-1"
-                     :class="m.role === 'user' ? 'text-slate-500' : 'text-teal-600'">
-                    {{ m.role === 'user' ? 'User' : 'LC' }}
-                  </p>
-                  <p class="text-slate-800 whitespace-pre-wrap">{{ m.content }}</p>
+                <!-- View toggle -->
+                <div class="flex items-center gap-1.5 pt-1 pb-2 border-b border-slate-200">
+                  <button
+                    @click="setChatView(c.id, 'real')"
+                    class="px-2 py-1 rounded-md text-[11px] font-semibold transition-colors"
+                    :class="(chatViewMode[c.id] || 'real') === 'real' ? 'bg-slate-200 text-slate-800' : 'text-slate-500 hover:text-slate-700'"
+                  >Real text</button>
+                  <button
+                    @click="setChatView(c.id, 'sidebyside'); loadAuditForChat(c.id)"
+                    class="px-2 py-1 rounded-md text-[11px] font-semibold transition-colors flex items-center gap-1"
+                    :class="chatViewMode[c.id] === 'sidebyside' ? 'bg-slate-200 text-slate-800' : 'text-slate-500 hover:text-slate-700'"
+                  >
+                    <Eye class="h-3 w-3" /> Side-by-side (pseudonymized)
+                  </button>
                 </div>
+
+                <!-- Real-text view (unchanged) -->
+                <template v-if="(chatViewMode[c.id] || 'real') === 'real'">
+                  <div v-if="!c.messages?.length" class="text-xs text-slate-400 italic">Empty chat.</div>
+                  <div
+                    v-for="(m, idx) in c.messages"
+                    :key="idx"
+                    class="rounded-lg px-3 py-2 text-sm"
+                    :class="m.role === 'user' ? 'bg-white border border-slate-200' : 'bg-teal-50 border border-teal-100'"
+                  >
+                    <p class="text-[10px] font-bold uppercase tracking-wider mb-1"
+                       :class="m.role === 'user' ? 'text-slate-500' : 'text-teal-600'">
+                      {{ m.role === 'user' ? 'User' : 'LC' }}
+                    </p>
+                    <p class="text-slate-800 whitespace-pre-wrap">{{ m.content }}</p>
+                  </div>
+                </template>
+
+                <!-- Side-by-side audit view -->
+                <template v-else>
+                  <div v-if="auditByChatId[c.id]?.loading" class="text-xs text-slate-400">Loading audit…</div>
+                  <div v-else-if="auditByChatId[c.id]?.error" class="text-xs text-rose-600">{{ auditByChatId[c.id].error }}</div>
+                  <div v-else-if="!auditByChatId[c.id]?.turns?.length" class="text-xs text-slate-400 italic">
+                    No audit records for this chat (predates audit capture, or never sent through gateway).
+                  </div>
+                  <div v-else class="space-y-3">
+                    <p class="text-[11px] text-slate-500 italic">
+                      Left: what the user/LC saw. Right: what was sent to the LLM provider.
+                      Pseudonyms (Person_XXXX, Org_XXXX, Loc_XXXX) are stable per-user identifiers.
+                    </p>
+                    <div v-for="t in auditByChatId[c.id].turns" :key="t.turn_index" class="space-y-1.5">
+                      <div class="text-[10px] uppercase tracking-wider text-slate-400">Turn {{ t.turn_index }} — {{ fmtDate(t.created_at) }}</div>
+                      <div class="grid grid-cols-2 gap-2">
+                        <div class="rounded-lg bg-white border border-slate-200 px-2.5 py-2">
+                          <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">User (real)</p>
+                          <p class="text-xs text-slate-800 whitespace-pre-wrap">{{ t.real_user_text }}</p>
+                        </div>
+                        <div class="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-2">
+                          <p class="text-[10px] font-bold uppercase tracking-wider text-amber-700 mb-1">User → LLM (pseudonymized)</p>
+                          <p class="text-xs text-slate-800 whitespace-pre-wrap font-mono">{{ t.pseudo_user_text }}</p>
+                        </div>
+                        <div class="rounded-lg bg-teal-50 border border-teal-100 px-2.5 py-2">
+                          <p class="text-[10px] font-bold uppercase tracking-wider text-teal-600 mb-1">LC (real)</p>
+                          <p class="text-xs text-slate-800 whitespace-pre-wrap">{{ t.real_assistant_text }}</p>
+                        </div>
+                        <div class="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-2">
+                          <p class="text-[10px] font-bold uppercase tracking-wider text-amber-700 mb-1">LC → LLM (pseudonymized)</p>
+                          <p class="text-xs text-slate-800 whitespace-pre-wrap font-mono">{{ t.pseudo_assistant_text }}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </template>
               </div>
             </li>
           </ul>

@@ -188,11 +188,13 @@ Return the updated JSON now.`
     const raw = await claudeChat({
       system: SUMMARY_UPDATER_SYSTEM,
       messages: [{ role: 'user', content: userPrompt }],
-      // Conservative ceiling: 4 entities × ~400-char summaries + a 400-char
-      // conv summary + JSON wrapping easily exceeds 800. Truncation was the
-      // root cause of the prior "Unterminated string in JSON" errors.
-      maxTokens: 2000,
+      // Conservative ceiling: 4 entities × ~250-char summaries + a 250-char
+      // conv summary + JSON wrapping. Truncation was the root cause of the
+      // prior "Unterminated string in JSON" errors; the new 250-char caps
+      // give us comfortable headroom under 1500.
+      maxTokens: 1500,
       temperature: 0.2,
+      usageContext: { userId, conversationId, purpose: 'summary' },
       ...(summaryModel ? { model: summaryModel } : {}),
     })
     // Strip any code fences and parse
