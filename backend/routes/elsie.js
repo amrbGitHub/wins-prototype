@@ -65,26 +65,28 @@ router.post('/chat', verifyToken, async (req, res) => {
     const lastReflection = reflectionsResult.data?.[0] || null
 
     const nameStr = firstName || 'there'
+    // One line per goal/program. The model only needs the title for natural
+    // reference and progress for "how are you doing on X" questions; full
+    // descriptions are noise on every turn — they're surfaceable on demand.
     const goalsCtx = goals.length
-      ? goals.map(g =>
-          `  - ID: ${g.id}\n    Title: ${g.title}\n    Progress: ${g.progress}%` +
-          (g.description ? `\n    Description: ${g.description}` : '') +
-          (g.programId ? `\n    Program: ${programs.find(p => p.id === g.programId)?.name || '(unknown)'}` : '')
-        ).join('\n')
-      : '  (No active goals set yet this month)'
+      ? goals.map(g => {
+          const prog = g.programId ? programs.find(p => p.id === g.programId)?.name : null
+          return `  - "${g.title}" (${g.progress}%${prog ? `, ${prog}` : ''})`
+        }).join('\n')
+      : '  (no active goals this month)'
     const programsCtx = programs.length
-      ? programs.map(p =>
-          `  - ID: ${p.id}\n    Name: ${p.name}\n    Status: ${p.status}` +
-          (p.description ? `\n    Description: ${p.description}` : '')
-        ).join('\n')
-      : '  (No programs set up yet — they\'re optional)'
+      ? programs.map(p => `  - "${p.name}" (${p.status})`).join('\n')
+      : '  (no programs)'
+    // Cap reflection evaluation; full prose is rarely load-bearing across turns.
+    // Suggestions matter more — they're concrete next steps the trainer chose.
     const reflectionCtx = lastReflection
-      ? `Last reflection (${lastReflection.month}): ${lastReflection.evaluation || ''}${
-          Array.isArray(lastReflection.suggestions) && lastReflection.suggestions.length
-            ? `\nSuggestions from that review: ${lastReflection.suggestions.join('; ')}`
-            : ''
-        }`
-      : '  (No reflections yet)'
+      ? (() => {
+          const evalText = (lastReflection.evaluation || '').slice(0, 280).trim()
+          const suggs = Array.isArray(lastReflection.suggestions) ? lastReflection.suggestions : []
+          const suggLine = suggs.length ? `\nSuggestions: ${suggs.slice(0, 4).join('; ')}` : ''
+          return `Last reflection (${lastReflection.month}): ${evalText}${suggLine}`
+        })()
+      : '  (no reflections yet)'
 
     const now = new Date()
     const todayCtx = `Today is ${now.toLocaleDateString('en-US', { weekday: 'long' })}, ${now.toISOString().slice(0, 10)}.`

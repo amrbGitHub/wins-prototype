@@ -127,9 +127,9 @@ You are a summary maintainer for a private L&D coaching app. You will receive:
 Your job: update both, returning STRICT JSON. Rules:
 
 - For each pseudonym in the inputs, write or update a factual person summary.
-  Keep it under 400 characters. State what we know, not what we suspect.
+  Keep it under 250 characters. State what we know, not what we suspect.
   Don't invent details. If nothing changed, return the existing text unchanged.
-- For the conversation summary, write under 400 characters describing
+- For the conversation summary, write under 250 characters describing
   WHERE we are in this conversation — what's been discussed, what the trainer
   is currently exploring. Capture conversational state so the next turn can
   resolve pronouns and "the X" references without history.
@@ -211,7 +211,7 @@ Return the updated JSON now.`
     if (!regId || typeof summary !== 'string' || !summary.trim()) continue
     personRows.push({
       pseudonym_registry_id: regId,
-      encrypted_summary:     encryptForUser(userId, summary.trim().slice(0, 800)),
+      encrypted_summary:     encryptForUser(userId, summary.trim().slice(0, 500)),
       updated_at:            new Date().toISOString(),
     })
   }
@@ -232,7 +232,7 @@ Return the updated JSON now.`
       .from('conversation_summaries')
       .upsert({
         conversation_id:   conversationId,
-        encrypted_summary: encryptForUser(userId, parsed.conversationSummary.trim().slice(0, 800)),
+        encrypted_summary: encryptForUser(userId, parsed.conversationSummary.trim().slice(0, 500)),
         updated_at:        new Date().toISOString(),
       }, { onConflict: 'conversation_id' })
     if (error) console.warn('[summaries] conversation summary upsert failed:', error.message)
