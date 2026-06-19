@@ -10,7 +10,7 @@
 // `parseJSON` / `parseChatResponse` are tolerant of markdown fences and prose
 // because no provider's JSON mode is exposed through the canonical interface.
 
-const { claudeChat, claudeChatStream } = require('./claude')
+const { claudeChat, claudeChatStream, getSummaryModel } = require('./claude')
 
 // Pass either `user` (single-turn convenience) or `messages` (multi-turn
 // conversation). System prompt is always separate so providers can cache it
@@ -32,24 +32,32 @@ function buildSystem(system, json) {
 // don't go through that pipeline because the trainer is allowed to see their
 // own learners' names — the pseudonymization story is about what crosses the
 // wire to a third party, not what crosses the function boundary.
+// Analyzer tasks are bounded JSON / short-form prose — route them to the
+// configured "fast" model (cfg.summaryModel) so the expensive chat model is
+// reserved for the LC gateway. Falls back to the chat model if no fast slot
+// is configured.
 async function analyzerChat({ system, user, messages, temperature = 0.4, maxTokens = 1024, json = false, usageContext }) {
+  const fastModel = await getSummaryModel()
   return claudeChat({
     system:   buildSystem(system, json),
     messages: buildMessages({ user, messages }),
     temperature,
     maxTokens,
     usageContext,
+    ...(fastModel ? { model: fastModel } : {}),
   })
 }
 
 // ── Streaming analyzer chat — async generator yielding delta strings ─────────
 async function* analyzerChatStream({ system, user, messages, temperature = 0.4, maxTokens = 1024, json = false, usageContext }) {
+  const fastModel = await getSummaryModel()
   for await (const event of claudeChatStream({
     system:   buildSystem(system, json),
     messages: buildMessages({ user, messages }),
     temperature,
     maxTokens,
     usageContext,
+    ...(fastModel ? { model: fastModel } : {}),
   })) {
     if (event.type === 'text' && event.text) yield event.text
   }

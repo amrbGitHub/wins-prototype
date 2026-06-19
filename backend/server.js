@@ -76,7 +76,13 @@ app.listen(PORT, async () => {
   try {
     const { getLlmConfig } = require('./lib/llmConfig')
     const cfg = await getLlmConfig()
-    console.log(`LLM: ${cfg.providerType || '(none)'} / ${cfg.chatModel || '(no model)'}${cfg.apiKey ? '' : ' [no API key]'}`)
+    console.log(`LLM: ${cfg.providerType || '(none)'} / chat=${cfg.chatModel || '(no model)'} fast=${cfg.summaryModel || '(unset → falls back to chat)'}${cfg.apiKey ? '' : ' [no API key]'}`)
+    if (cfg.chatModel && cfg.summaryModel && cfg.chatModel === cfg.summaryModel) {
+      // Summary updater + analyzers (wins/goals/reflections/titles) are
+      // billed to the chat model. Set SUMMARY_MODEL (or the admin LLM
+      // config's fast-model slot) to a cheaper sibling to cut cost.
+      console.warn('[LLM] WARN: summaryModel === chatModel — bounded JSON tasks are paying chat-model prices')
+    }
   } catch (err) {
     console.warn('LLM config unavailable at boot:', err.message)
   }

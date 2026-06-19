@@ -164,13 +164,14 @@ onMounted(load)
             />
           </div>
           <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Summary model</label>
+            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Fast model (summaries + analyzers)</label>
             <input
               v-model="form.summaryModel"
               type="text"
               :placeholder="placeholders.chatModel"
               class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
             />
+            <p class="mt-1 text-xs text-slate-500">Used for win/goal/reflection scoring, conversation titles, and the summary updater. Leave blank to fall back to the chat model.</p>
           </div>
         </div>
 
