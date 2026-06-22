@@ -245,6 +245,13 @@ async function downloadConversation(id, ev) {
 
 // Persist only the NEW messages since last save. Called on turn boundaries
 // (onAfterTurn from the composable). Does nothing if no new messages.
+//
+// As of the data-integrity hardening: only role='user' messages are posted.
+// Assistant turns are written server-side by the LLM gateway (routes/elsie.js)
+// and the canned greeting is written by POST /:id/greeting. The /messages
+// endpoint now rejects role='assistant' payloads. We still bump
+// _lastPersistedCount past the assistant messages so the next turn's slice
+// doesn't re-attempt them.
 async function persistConversationTail() {
   if (!conversationId.value) return
   const all  = messages.value
@@ -254,8 +261,13 @@ async function persistConversationTail() {
   // the user has switched chats by the time the response comes back.
   const targetId = conversationId.value
   const myGen    = _saveGen
-  // Strip reactive proxies / non-persistable internals
-  const sanitised = JSON.parse(JSON.stringify(tail))
+  // Strip reactive proxies / non-persistable internals, then filter out
+  // anything the server won't accept on this endpoint.
+  const sanitised = JSON.parse(JSON.stringify(tail)).filter(m => m.role === 'user')
+  if (!sanitised.length) {
+    _lastPersistedCount = all.length
+    return
+  }
   try {
     await apiFetch(`/api/lc/conversations/${targetId}/messages`, {
       method: 'POST',

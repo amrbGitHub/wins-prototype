@@ -309,6 +309,62 @@ router.patch('/users/:userId/role', async (req, res) => {
   }
 })
 
+// ── GET /api/admin/users/:userId/writes — writes-per-hour activity ──────────
+// Bucketed write counts from request_log so an admin can spot fuzzer-shaped
+// bursts at a glance. Default window: last 7 days, hourly buckets. The panel
+// renders a sparkline + the peak hour for the window.
+router.get('/users/:userId/writes', async (req, res) => {
+  try {
+    const userId = req.params.userId
+    const days = Math.max(1, Math.min(30, parseInt(req.query.days, 10) || 7))
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+
+    const { data, error } = await supabase
+      .from('request_log')
+      .select('method, route, status, created_at')
+      .eq('user_id', userId)
+      .gte('created_at', since)
+      .order('created_at', { ascending: true })
+      .limit(20000)
+    if (error) throw error
+
+    // Bucket to YYYY-MM-DDTHH (UTC). Cheap, no timezone math required for the
+    // panel to read "this user spiked at hour X." Admins live in many TZs.
+    const hourly = new Map()
+    const byRoute = new Map()
+    let rateLimited = 0
+    for (const r of data || []) {
+      const hour = String(r.created_at).slice(0, 13)  // 'YYYY-MM-DDTHH'
+      hourly.set(hour, (hourly.get(hour) || 0) + 1)
+      byRoute.set(r.route, (byRoute.get(r.route) || 0) + 1)
+      if (r.status === 429) rateLimited += 1
+    }
+    const buckets = [...hourly.entries()]
+      .map(([hour, count]) => ({ hour, count }))
+      .sort((a, b) => a.hour.localeCompare(b.hour))
+    const peak = buckets.reduce(
+      (best, b) => (b.count > (best?.count || 0) ? b : best),
+      null,
+    )
+    const topRoutes = [...byRoute.entries()]
+      .map(([route, count]) => ({ route, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8)
+
+    res.json({
+      windowDays:  days,
+      totalWrites: data?.length || 0,
+      rateLimited,
+      peak,
+      buckets,
+      topRoutes,
+    })
+  } catch (err) {
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
+  }
+})
+
 // ── GET /api/admin/users/:userId/conversations/:conversationId/audit ────────
 // Returns the per-turn real vs pseudonymized payloads captured by
 // lc_message_audit, so an admin can verify the redaction story on real

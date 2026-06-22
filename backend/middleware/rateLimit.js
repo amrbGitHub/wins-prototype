@@ -18,23 +18,7 @@
 // get rate-limited.
 
 const rateLimit = require('express-rate-limit')
-
-// Decode the `sub` claim from a Bearer token without verifying. Safe to
-// use for rate-limit keying because a forged sub still has to survive
-// verifyToken downstream — limiter-bucket evasion isn't auth bypass, and
-// rotating sub values is no easier than rotating IPs.
-function subFromAuthHeader(header) {
-  if (!header || !header.startsWith('Bearer ')) return null
-  const token = header.slice(7)
-  const parts = token.split('.')
-  if (parts.length !== 3) return null
-  try {
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'))
-    return typeof payload.sub === 'string' && payload.sub ? payload.sub : null
-  } catch {
-    return null
-  }
-}
+const { subFromAuthHeader } = require('./jwtSub')
 
 function userKey(req /* , _res */) {
   // verifyToken hasn't run yet at the global-middleware layer, so req.userId

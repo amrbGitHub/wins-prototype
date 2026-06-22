@@ -4,6 +4,7 @@ const helmet  = require('helmet')
 const { PORT, originAllowed } = require('./config')
 const { errorHandler } = require('./middleware/errorHandler')
 const { aiLimiter, generalLimiter, writeLimiter } = require('./middleware/rateLimit')
+const { requestLog } = require('./middleware/requestLog')
 
 const app = express()
 
@@ -52,6 +53,13 @@ app.use(cors({
     originAllowed(origin) ? cb(null, true) : cb(new Error(`CORS: origin ${origin} not allowed`)),
 }))
 app.use(express.json({ limit: '1mb' }))
+
+// Per-user write log (authed POST/PATCH/PUT/DELETE only). Mounted BEFORE
+// the rate limiters so 429-rejected bursts still get logged — those are
+// exactly the patterns an admin investigating abuse wants to see. The
+// middleware registers a res.on('finish') hook, then calls next(), so a
+// downstream short-circuit doesn't strand the recording.
+app.use(requestLog)
 
 // Per-user rate limits. Order matters: writeLimiter runs first so a write
 // burst trips its tighter 30/min cap before the generalLimiter's 120/min

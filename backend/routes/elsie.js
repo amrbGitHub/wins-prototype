@@ -460,6 +460,39 @@ async function handleTurn({ res, userId, conversationId, chatMessages, skipNames
     console.warn('[gateway] audit insert failed (non-fatal):', e.message)
   }
 
+  // 10c. Persist the assistant turn server-side. Data-integrity guarantee:
+  // role='assistant' rows in lc_conversations.messages come from the LLM
+  // gateway, never from a client write. The /messages append endpoint
+  // explicitly rejects assistant payloads. Best-effort — if this fails, the
+  // client still has the message in memory and will re-render on reload
+  // from local state, but the canonical record is the DB row.
+  if (conversationId) {
+    try {
+      const { data: row, error: readErr } = await supabase
+        .from('lc_conversations')
+        .select('messages')
+        .eq('id', conversationId)
+        .eq('user_id', userId)
+        .single()
+      if (readErr) throw readErr
+      const existing = Array.isArray(row?.messages) ? row.messages : []
+      const assistantMsg = {
+        role:    'assistant',
+        content: fullMessage,
+        actions,
+        ...(citations?.length ? { citations } : {}),
+      }
+      const { error: updErr } = await supabase
+        .from('lc_conversations')
+        .update({ messages: [...existing, assistantMsg] })
+        .eq('id', conversationId)
+        .eq('user_id', userId)
+      if (updErr) throw updErr
+    } catch (e) {
+      console.warn('[gateway] assistant-turn persist failed (non-fatal):', e.message)
+    }
+  }
+
   res.json({ message: fullMessage, actions, dropped, citations })
 }
 

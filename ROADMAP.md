@@ -20,26 +20,27 @@ requests for that day — meaning real LLM cost was incurred but our
 entirely (provider billing dashboards own that) and need a provider-agnostic
 abuse signal instead.
 
-What to build:
-- **`request_log` table** — one row per authenticated write request:
-  `user_id, route, status, created_at`. No tokens, no model. Lives in
-  middleware (`backend/middleware/auth.js` after `verifyToken`) so the
-  recording can't drift from reality. Backs both the admin "writes per
-  hour" panel and the gateway rate limiter.
-- ~~**Server-side rate limit at the gateway.**~~ Shipped. `writeLimiter`
-  in `backend/middleware/rateLimit.js` caps POST/PATCH/PUT/DELETE at
-  30/min per user, keyed by JWT `sub` (decoded pre-auth so it works at
-  the global middleware layer). `generalLimiter` lowered from 300 → 120
-  per-minute floor; `aiLimiter` unchanged at 60/min. GETs exempt from
-  the write cap so dashboard loads don't trip it. Revisit the threshold
-  once `request_log` is in and we can see real per-user rates.
-- **Harden `POST /api/lc/conversations/:id/messages`.** Today it accepts
-  `role: 'assistant'` payloads from the client — the fuzzer used this to
-  fake LC replies without proof the model produced them. Restrict to
-  `role: 'user'` only, and have the server append the assistant turn
-  itself inside `routes/elsie.js` after the model call.
-- **Admin signal.** Surface "writes per hour" on the user detail page so
-  spikes are visible at a glance.
+All four pieces shipped:
+- ~~**`request_log` table.**~~ Migration `012_request_log.sql` + the
+  `backend/middleware/requestLog.js` hook capture authenticated
+  POST/PATCH/PUT/DELETE — user_id (resolved from JWT `sub` so 429s still
+  log), method, route, status, timestamp. Mounted before the rate
+  limiters so rate-limited bursts get rows too.
+- ~~**Server-side rate limit at the gateway.**~~ `writeLimiter` in
+  `backend/middleware/rateLimit.js` caps writes at 30/min per user
+  (keyed by the same JWT `sub`). `generalLimiter` lowered 300 → 120/min;
+  `aiLimiter` unchanged at 60/min. GETs exempt from the write cap.
+- ~~**Hardened `POST /api/lc/conversations/:id/messages`.**~~ The
+  endpoint now rejects `role: 'assistant'` payloads (and PATCH no longer
+  accepts a `messages` field at all). `routes/elsie.js` persists the
+  assistant turn server-side after the model call, and a new
+  `POST /:id/greeting` writes the canned first-turn greeting server-side
+  too — so every assistant row in `lc_conversations.messages` came from
+  us, not from the client.
+- ~~**Admin signal.**~~ User detail dashboard has a "Writes per hour
+  (last 7 days)" panel with totals, peak hour, 429-rate-limited count,
+  hourly sparkline (bars turn red when an hour exceeds the 30/min cap),
+  and top-routes breakdown. Backed by `GET /api/admin/users/:id/writes`.
 
 ### Rich journal editor
 The journal entry input is a plain `<textarea>` — fine for "today was busy"

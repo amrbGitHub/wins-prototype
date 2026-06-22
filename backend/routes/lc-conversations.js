@@ -9,12 +9,41 @@ const router = Router()
 const MAX_MSG_BYTES   = 32_000     // ~32KB per message
 const MAX_TITLE_BYTES = 200
 
-function isValidMessage(m) {
+// Default policy: only role='user' messages may be written by client requests.
+// role='assistant' rows are owned by the LLM gateway (routes/elsie.js) — the
+// integrity story for admin chat review depends on the assistant column being
+// trustworthy. The 2026-06-17 fuzzer exploited the prior any-role policy to
+// stuff fake LC replies into conversations. Pass { allowAssistant: true } in
+// internal contexts where a server route is explicitly seeding history.
+function isValidMessage(m, { allowAssistant = false } = {}) {
   if (!m || typeof m !== 'object') return false
-  if (!['user', 'assistant'].includes(m.role)) return false
+  if (m.role === 'user') {
+    // fall through
+  } else if (m.role === 'assistant' && allowAssistant) {
+    // fall through
+  } else {
+    return false
+  }
   if (typeof m.content !== 'string') return false
   if (m.content.length > MAX_MSG_BYTES) return false
   return true
+}
+
+// Canned greetings used by /greeting. Kept on the server so that, like
+// assistant turns from the LLM, the message recorded in the conversation is
+// always one the server actually produced.
+const GREETING_TEMPLATES = [
+  '! What can I do for you today?',
+  '! I am here whenever you want to update a goal, log a win, or talk something through.',
+  '! What would you like help with right now?',
+  '! Tell me what is going on, and I will help however I can.',
+  '! Want to update progress, capture a win, or just check in?',
+]
+function buildGreeting(firstName) {
+  const name = (firstName || '').trim()
+  const hey  = name ? `Hey ${name}` : 'Hey'
+  const tail = GREETING_TEMPLATES[Math.floor(Math.random() * GREETING_TEMPLATES.length)]
+  return hey + tail
 }
 
 // ── Row mapper ────────────────────────────────────────────────────────────────
@@ -77,8 +106,11 @@ router.post('/', verifyToken, async (req, res) => {
   try {
     const { title, plannerMode, messages } = req.body || {}
     const initialMessages = Array.isArray(messages) ? messages : []
-    if (!initialMessages.every(isValidMessage)) {
-      return res.status(400).json({ error: 'Invalid message shape' })
+    // New conversations should generally start empty; if the client seeds any
+    // initial messages they must be user-role (canonical greeting comes from
+    // /greeting, not from create).
+    if (!initialMessages.every(m => isValidMessage(m))) {
+      return res.status(400).json({ error: 'Invalid message shape (only role="user" accepted)' })
     }
     const { data, error } = await supabase
       .from('lc_conversations')
@@ -98,6 +130,47 @@ router.post('/', verifyToken, async (req, res) => {
   }
 })
 
+// POST /api/lc/conversations/:id/greeting — server-owned first assistant turn.
+// Picks one of GREETING_TEMPLATES, appends it to the conversation as an
+// assistant message, returns the rendered text. This exists because the
+// /messages endpoint forbids role='assistant'; the greeting is canned content
+// (no LLM call), but it still needs to be written by the server so admins can
+// trust every assistant row in lc_conversations came from us.
+router.post('/:id/greeting', verifyToken, async (req, res) => {
+  try {
+    const { firstName = '' } = req.body || {}
+    const greeting = buildGreeting(firstName)
+
+    const { data: row, error: readErr } = await supabase
+      .from('lc_conversations')
+      .select('messages')
+      .eq('id', req.params.id)
+      .eq('user_id', req.userId)
+      .single()
+    if (readErr) throw readErr
+    if (!row) return res.status(404).json({ error: 'Conversation not found' })
+
+    const existing = Array.isArray(row.messages) ? row.messages : []
+    // Avoid duplicating a greeting if one was already seeded for this convo.
+    if (existing.some(m => m.role === 'assistant')) {
+      return res.json({ greeting: existing.find(m => m.role === 'assistant').content, alreadySeeded: true })
+    }
+
+    const assistantMsg = { role: 'assistant', content: greeting, actions: [] }
+    const { error: updErr } = await supabase
+      .from('lc_conversations')
+      .update({ messages: [...existing, assistantMsg] })
+      .eq('id', req.params.id)
+      .eq('user_id', req.userId)
+    if (updErr) throw updErr
+
+    res.json({ greeting })
+  } catch (err) {
+    console.error('[route-error]', req.method, req.originalUrl, err?.message)
+    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
+  }
+})
+
 // POST /api/lc/conversations/:id/messages — append messages (avoids full JSONB rewrite)
 // Read-modify-write scoped to user_id. Cheaper than the deep-watch + full PATCH
 // pattern that fired on every reactive mutation in the frontend. Use this on
@@ -106,7 +179,11 @@ router.post('/:id/messages', verifyToken, async (req, res) => {
   try {
     const incoming = Array.isArray(req.body?.messages) ? req.body.messages : []
     if (!incoming.length) return res.status(400).json({ error: 'messages array required' })
-    if (!incoming.every(isValidMessage)) return res.status(400).json({ error: 'Invalid message shape' })
+    if (!incoming.every(m => isValidMessage(m))) {
+      return res.status(400).json({
+        error: 'Invalid message shape. Only role="user" messages may be appended via this endpoint; assistant turns are written by the LLM gateway.',
+      })
+    }
 
     const { data: row, error: readErr } = await supabase
       .from('lc_conversations')
@@ -134,18 +211,18 @@ router.post('/:id/messages', verifyToken, async (req, res) => {
   }
 })
 
-// PATCH /api/lc/conversations/:id — update title / plannerMode / messages (full replace)
+// PATCH /api/lc/conversations/:id — update title / plannerMode only.
+// Note: `messages` is intentionally NOT patchable here. Full-array replace
+// would let a caller blow away or rewrite assistant history, defeating the
+// data-integrity story that role='assistant' rows come only from the LLM
+// gateway. Use POST /:id/messages (user-role only) or the gateway's
+// internal append.
 router.patch('/:id', verifyToken, async (req, res) => {
   try {
-    const { title, plannerMode, messages } = req.body || {}
+    const { title, plannerMode } = req.body || {}
     const patch = {}
     if (title       !== undefined) patch.title        = title?.trim()?.slice(0, MAX_TITLE_BYTES) || null
     if (plannerMode !== undefined) patch.planner_mode = !!plannerMode
-    if (messages !== undefined) {
-      if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be array' })
-      if (!messages.every(isValidMessage)) return res.status(400).json({ error: 'Invalid message shape' })
-      patch.messages = messages
-    }
 
     if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to update' })
 

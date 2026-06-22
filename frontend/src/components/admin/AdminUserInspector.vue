@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useApi } from '../../composables/useApi.js'
 import {
   ChevronRight, ArrowLeft, AlertTriangle, Trash2, MessageSquare,
-  ShieldCheck, ShieldOff, Eye, Target, BookText, Layers, Sparkles,
+  ShieldCheck, ShieldOff, Eye, Target, BookText, Layers, Sparkles, Activity,
 } from 'lucide-vue-next'
 
 const { apiFetch } = useApi()
@@ -55,6 +55,30 @@ async function setRole(nextRole) {
     roleSaving.value = false
   }
 }
+
+// ── Writes-per-hour (abuse signal) ─────────────────────────────────────────
+// Last-7-day window by default; the panel renders a sparkline + peak hour +
+// total + 429-rate-limited count. Fed by GET /admin/users/:id/writes which
+// queries request_log.
+const writes = ref(null)
+const writesLoading = ref(false)
+const writesError   = ref('')
+async function loadWrites() {
+  if (!selectedId.value) return
+  writesLoading.value = true
+  writesError.value   = ''
+  try {
+    writes.value = await apiFetch(`/api/admin/users/${selectedId.value}/writes?days=7`)
+  } catch (e) {
+    writesError.value = e.message || 'Failed to load activity'
+  } finally {
+    writesLoading.value = false
+  }
+}
+const writesPeakHourMax = computed(() => {
+  if (!writes.value?.buckets?.length) return 0
+  return Math.max(...writes.value.buckets.map(b => b.count))
+})
 
 // ── Audit (pseudonymized side-by-side) ─────────────────────────────────────
 const auditByChatId = ref({})
@@ -138,8 +162,10 @@ async function openUser(u) {
   chatViewMode.value = {}
   roleMessage.value = ''
   roleError.value = ''
+  writes.value = null
   try {
     detail.value = await apiFetch(`/api/admin/users/${u.userId}`)
+    loadWrites()  // parallel; panel renders independently of the rest
   } catch (e) {
     detailError.value = e.message || 'Failed to load user details'
   } finally {
@@ -348,6 +374,63 @@ onMounted(loadUsers)
               <p class="text-2xl font-bold text-slate-800 mt-1">{{ counts.programs }}</p>
             </button>
           </div>
+        </section>
+
+        <!-- Writes per hour (abuse signal) -->
+        <section>
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 flex items-center gap-1.5">
+            <Activity class="h-3.5 w-3.5" /> Writes per hour (last 7 days)
+          </h3>
+          <div v-if="writesLoading" class="text-xs text-slate-400">Loading activity…</div>
+          <div v-else-if="writesError" class="text-xs text-rose-600">{{ writesError }}</div>
+          <div v-else-if="writes" class="rounded-xl bg-slate-50 px-3 py-3 text-sm space-y-3">
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <p class="text-[10px] uppercase tracking-wider text-slate-500">Total writes</p>
+                <p class="text-lg font-bold text-slate-800">{{ writes.totalWrites }}</p>
+              </div>
+              <div>
+                <p class="text-[10px] uppercase tracking-wider text-slate-500">Rate-limited (429)</p>
+                <p class="text-lg font-bold" :class="writes.rateLimited > 0 ? 'text-rose-600' : 'text-slate-800'">{{ writes.rateLimited }}</p>
+              </div>
+              <div>
+                <p class="text-[10px] uppercase tracking-wider text-slate-500">Peak hour</p>
+                <p class="text-lg font-bold" :class="(writes.peak?.count || 0) > 30 ? 'text-rose-600' : 'text-slate-800'">
+                  {{ writes.peak ? writes.peak.count : 0 }}
+                  <span v-if="writes.peak" class="text-[10px] text-slate-500 font-normal">@ {{ writes.peak.hour }}Z</span>
+                </p>
+              </div>
+            </div>
+
+            <!-- Sparkline. Each bar's height is proportional to its hour's
+                 count vs the window peak. Bars red when the hour exceeded
+                 30 writes — that's our writeLimiter ceiling, anything above
+                 it means the user kept retrying through rate-limits. -->
+            <div v-if="writes.buckets?.length" class="border-t border-slate-200 pt-2">
+              <p class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Hourly</p>
+              <div class="flex items-end gap-0.5 h-16">
+                <div
+                  v-for="b in writes.buckets" :key="b.hour"
+                  class="flex-1 min-w-0 rounded-t"
+                  :class="b.count > 30 ? 'bg-rose-500' : 'bg-teal-500'"
+                  :style="{ height: ((b.count / writesPeakHourMax) * 100) + '%' }"
+                  :title="`${b.hour}Z — ${b.count} writes`"
+                />
+              </div>
+            </div>
+            <p v-else class="text-[11px] text-slate-400 italic">No writes recorded in window.</p>
+
+            <div v-if="writes.topRoutes?.length" class="border-t border-slate-200 pt-2">
+              <p class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Top routes</p>
+              <div class="space-y-1">
+                <div v-for="r in writes.topRoutes" :key="r.route" class="flex items-center justify-between text-xs">
+                  <span class="font-mono text-slate-700 truncate">{{ r.route }}</span>
+                  <span class="text-slate-500 shrink-0 ml-2">{{ r.count }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p v-else class="text-xs text-slate-400">No activity data yet.</p>
         </section>
 
         <!-- Danger zone -->

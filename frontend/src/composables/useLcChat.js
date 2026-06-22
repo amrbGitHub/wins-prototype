@@ -192,7 +192,28 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
   }
 
   async function addGreeting({ speak = false } = {}) {
-    const greeting = buildGreeting()
+    // Greeting now comes from the server so role='assistant' rows in the
+    // conversation are always server-written (matches the policy enforced by
+    // POST /messages and PATCH). Fall back to local generation if the server
+    // call fails — better UX than a blocked chat. The local fallback won't be
+    // persisted (since /messages rejects assistant), but the user can still
+    // chat; their next user message + LC's response WILL be saved by the
+    // gateway server-side.
+    const conversationId = getConversationId?.()
+    let greeting = null
+    if (conversationId) {
+      try {
+        const res = await apiFetch(`/api/lc/conversations/${conversationId}/greeting`, {
+          method: 'POST',
+          body: JSON.stringify({ firstName: getFirstName?.() || '' }),
+        })
+        greeting = res?.greeting || null
+      } catch (e) {
+        console.warn('[greeting] server greeting failed, falling back to local:', e.message)
+      }
+    }
+    if (!greeting) greeting = buildGreeting()
+
     messages.value.push({
       _id: newId('m'),
       role: 'assistant',
