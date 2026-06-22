@@ -26,10 +26,13 @@ What to build:
   middleware (`backend/middleware/auth.js` after `verifyToken`) so the
   recording can't drift from reality. Backs both the admin "writes per
   hour" panel and the gateway rate limiter.
-- **Server-side rate limit at the gateway.** Bursty short-window cap on
-  authenticated write paths (entries, goals, conversations, append,
-  `/elsie/chat`). 30 req/min as a starting default. Return 429 with a
-  retry-after header.
+- ~~**Server-side rate limit at the gateway.**~~ Shipped. `writeLimiter`
+  in `backend/middleware/rateLimit.js` caps POST/PATCH/PUT/DELETE at
+  30/min per user, keyed by JWT `sub` (decoded pre-auth so it works at
+  the global middleware layer). `generalLimiter` lowered from 300 → 120
+  per-minute floor; `aiLimiter` unchanged at 60/min. GETs exempt from
+  the write cap so dashboard loads don't trip it. Revisit the threshold
+  once `request_log` is in and we can see real per-user rates.
 - **Harden `POST /api/lc/conversations/:id/messages`.** Today it accepts
   `role: 'assistant'` payloads from the client — the fuzzer used this to
   fake LC replies without proof the model produced them. Restrict to
