@@ -40,6 +40,12 @@ app.use((_req, res, next) => {
   next()
 })
 
+// Health route mounts BEFORE CORS so platform probes (Render, uptime
+// monitors) don't trip the origin check. They're server-to-server calls
+// with no Origin header — the cybersec-hardened CORS middleware would
+// otherwise reject them and spam the logs on every probe interval.
+app.use('/api/health', require('./routes/health'))
+
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors({
   origin: (origin, cb) =>
@@ -52,7 +58,6 @@ app.use(express.json({ limit: '1mb' }))
 app.use(generalLimiter)
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.use('/api/health',      require('./routes/health'))
 app.use('/api/entries',     require('./routes/entries'))
 app.use('/api',             aiLimiter, require('./routes/wins'))   // /api/analyze, /api/draft, etc. — LLM-backed
 app.use('/api/goals',       require('./routes/goals'))
