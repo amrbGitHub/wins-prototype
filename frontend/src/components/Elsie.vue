@@ -43,7 +43,7 @@ const avgLevel = computed(() => {
 // sending. Processing: abort the in-flight LLM call. Speaking: end LC's
 // response without starting a new recording (orb-tap would interrupt + listen).
 const cancelLabel = computed(() => {
-  if (convoStatus.value === 'listening')  return { text: 'Discard', aria: "Discard what you've said without sending" }
+  if (convoStatus.value === 'listening')  return { text: 'Cancel Response', aria: "Cancel without sending what you've said" }
   if (convoStatus.value === 'processing') return { text: 'Cancel',  aria: 'Cancel the current request' }
   if (convoStatus.value === 'speaking')   return { text: 'End',     aria: 'Stop LC and end this turn' }
   return { text: 'Cancel', aria: 'Cancel' }
@@ -227,10 +227,10 @@ function onTextEnter(e) {
           <p v-if="convoTranscript" class="w-full max-w-[300px] text-center text-sm leading-snug text-slate-700 font-medium px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-100">
             {{ convoTranscript }}
           </p>
-          <p v-else-if="convoStatus === 'idle' && lastAiMsg" class="text-[11px] text-slate-400 text-center">
+          <p v-else-if="convoStatus === 'idle' && lastAiMsg" class="text-sm font-bold text-slate-700 text-center">
             Tap the orb to speak
           </p>
-          <p v-else-if="convoStatus === 'listening'" class="text-[11px] text-slate-400 text-center">
+          <p v-else-if="convoStatus === 'listening'" class="text-sm font-bold text-slate-700 text-center">
             Tap the orb again to send
           </p>
         </div>

@@ -67,7 +67,7 @@ const avgLevel = computed(() => {
 // Secondary control label — explicit per state so it can't be confused with
 // the orb's affirmative action. See Elsie.vue for the matching design note.
 const cancelLabel = computed(() => {
-  if (convoStatus.value === 'listening')  return { text: 'Discard', aria: "Discard what you've said without sending" }
+  if (convoStatus.value === 'listening')  return { text: 'Cancel Response', aria: "Cancel without sending what you've said" }
   if (convoStatus.value === 'processing') return { text: 'Cancel',  aria: 'Cancel the current request' }
   if (convoStatus.value === 'speaking')   return { text: 'End',     aria: 'Stop LC and end this turn' }
   return { text: 'Cancel', aria: 'Cancel' }
@@ -530,10 +530,10 @@ function relTime(ts) {
             <p v-if="convoTranscript" class="w-full max-w-md text-center text-base leading-snug text-slate-700 font-medium px-4 py-2 rounded-xl bg-slate-50 border border-slate-100">
               {{ convoTranscript }}
             </p>
-            <p v-else-if="convoStatus === 'idle' && lastAiMsg" class="text-xs text-slate-400 text-center">
+            <p v-else-if="convoStatus === 'idle' && lastAiMsg" class="text-base font-bold text-slate-700 text-center">
               Tap the orb to speak
             </p>
-            <p v-else-if="convoStatus === 'listening'" class="text-xs text-slate-400 text-center">
+            <p v-else-if="convoStatus === 'listening'" class="text-base font-bold text-slate-700 text-center">
               Tap the orb again to send
             </p>
           </div>
