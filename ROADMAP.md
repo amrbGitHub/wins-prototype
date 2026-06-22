@@ -38,6 +38,42 @@ What to build:
 - **Admin signal.** Surface "writes per hour" on the user detail page so
   spikes are visible at a glance.
 
+### Rich journal editor
+The journal entry input is a plain `<textarea>` — fine for "today was busy"
+prose, undersized for what a journal actually is. Trainers should be able
+to structure an entry the way they'd structure a real journal: headings,
+subheadings, bold/italic, bullet lists, paragraph breaks that render as
+paragraph breaks.
+
+Considered Google Docs embed and ruled it out: it would route raw journal
+text through Google before our pseudonymization pipeline (`[[feedback-ai-privacy]]`),
+which is the boundary the whole redactor + per-user pseudonym story is
+built around.
+
+Direction: swap the textarea for TipTap (Vue 3 wrapper over ProseMirror).
+Open questions to settle before building:
+- **Storage format.** `journal_entries.text` is `text` today. TipTap can
+  serialize to HTML or to its own JSON doc. JSON preserves structure
+  losslessly; HTML is easier to render in the admin inspector and for
+  win-extraction prompts. Probably HTML (simple, safe to slot into the
+  analyzer prompt verbatim), with strict sanitization on read.
+- **Analyzer impact.** Wins extraction (`routes/wins.js`) feeds entry text
+  to the LLM. Bolded / heading-tagged content is *useful* signal there —
+  the model can lean on "Win: closed Q3 onboarding" as a heading. Need to
+  decide whether to pass HTML through or strip to plain text on the way
+  in. Keeping the tags probably yields better extractions.
+- **Pseudonymization.** The redactor walks plain text today. Either run it
+  on the rendered text content before sending to the model, or teach it
+  to ignore tags. Cheap; the editor shouldn't change what text the model
+  sees, only what the user sees.
+- **Frontend NER hints.** `entityHints` is generated from typed text on
+  the client. The hint extractor needs to read TipTap's JSON or
+  textContent rather than `.value` of a textarea — one-line swap.
+
+Worth the bundle cost (~30kb gzipped for TipTap core + the marks/nodes we
+need). The journal page is a primary surface and it currently feels like
+a form field.
+
 ### Main app UX fixes
 Friction points surfaced from real use:
 - **Home roadmap card** — current presentation is confusing; either redesign
