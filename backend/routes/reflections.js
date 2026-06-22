@@ -78,7 +78,6 @@ When done:
         temperature: 0.6,
         maxTokens: 2048,
         json: true,
-        usageContext: { userId: req.userId, purpose: 'analyzer' },
       })) {
         fullContent += delta
         res.write(`data: ${JSON.stringify({ delta })}\n\n`)

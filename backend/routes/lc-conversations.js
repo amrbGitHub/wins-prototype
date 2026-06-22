@@ -245,7 +245,6 @@ router.post('/:id/auto-title', verifyToken, async (req, res) => {
         user: transcript,
         temperature: 0.3,
         maxTokens: 64,
-        usageContext: { userId: req.userId, conversationId: req.params.id, purpose: 'analyzer' },
       })
       title = text.trim().replace(/^["'`]+|["'`]+$/g, '').replace(/[.!?]+$/, '').trim()
       if (!title) throw new Error('empty title from model')

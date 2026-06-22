@@ -46,7 +46,6 @@ async function extractWins(systemExtra, userContent, userId) {
     user:   userContent,
     temperature: 0.3,
     json: true,
-    usageContext: { userId, purpose: 'analyzer' },
   })
   const parsed = parseJSON(text)
   return {
@@ -108,7 +107,6 @@ Return ONLY the draft text — no markdown fences, no preamble, no sign-off name
       `.trim(),
       user: `CHANNEL: ${channel}\nTONE: ${tone}\nOUTCOME: ${outcome}\nRECOGNIZE: ${recognizeWho || '(not provided)'}\n\nWIN:\nTitle: ${win.title}\nStory: ${win.story}\nEvidence: ${win.evidence || ''}\n\nWrite the draft now.`,
       temperature: 0.5,
-      usageContext: { userId: req.userId, purpose: 'analyzer' },
     })
 
     res.json({ draft: text.trim() })
@@ -142,7 +140,6 @@ Return ONLY the message text — no markdown fences, no preamble, no sign-off na
       `.trim(),
       user: `WIN TO CELEBRATE:\nTitle: ${win.title}\nStory: ${win.story}\nEvidence: ${win.evidence || ''}\n${win.celebrationIdeas?.length ? `Celebration ideas for context: ${win.celebrationIdeas.join('; ')}` : ''}\n\n${toneInstruction}\n\nWrite the message the trainer will send now.`,
       temperature: 0.6,
-      usageContext: { userId: req.userId, purpose: 'analyzer' },
     })
 
     res.json({ draft: text.trim() })

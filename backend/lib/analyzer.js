@@ -36,27 +36,25 @@ function buildSystem(system, json) {
 // configured "fast" model (cfg.summaryModel) so the expensive chat model is
 // reserved for the LC gateway. Falls back to the chat model if no fast slot
 // is configured.
-async function analyzerChat({ system, user, messages, temperature = 0.4, maxTokens = 1024, json = false, usageContext }) {
+async function analyzerChat({ system, user, messages, temperature = 0.4, maxTokens = 1024, json = false }) {
   const fastModel = await getSummaryModel()
   return claudeChat({
     system:   buildSystem(system, json),
     messages: buildMessages({ user, messages }),
     temperature,
     maxTokens,
-    usageContext,
     ...(fastModel ? { model: fastModel } : {}),
   })
 }
 
 // ── Streaming analyzer chat — async generator yielding delta strings ─────────
-async function* analyzerChatStream({ system, user, messages, temperature = 0.4, maxTokens = 1024, json = false, usageContext }) {
+async function* analyzerChatStream({ system, user, messages, temperature = 0.4, maxTokens = 1024, json = false }) {
   const fastModel = await getSummaryModel()
   for await (const event of claudeChatStream({
     system:   buildSystem(system, json),
     messages: buildMessages({ user, messages }),
     temperature,
     maxTokens,
-    usageContext,
     ...(fastModel ? { model: fastModel } : {}),
   })) {
     if (event.type === 'text' && event.text) yield event.text

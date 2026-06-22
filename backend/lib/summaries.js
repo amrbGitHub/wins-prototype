@@ -194,7 +194,6 @@ Return the updated JSON now.`
       // give us comfortable headroom under 1500.
       maxTokens: 1500,
       temperature: 0.2,
-      usageContext: { userId, conversationId, purpose: 'summary' },
       ...(summaryModel ? { model: summaryModel } : {}),
     })
     // Strip any code fences and parse

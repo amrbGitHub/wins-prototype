@@ -277,7 +277,6 @@ Return ONLY valid JSON:
       user: `Goal: ${goal.title}\nDescription: ${goal.description || ''}\nSuccess criteria: ${goal.success_criteria || ''}\n\nBreak this into 3–5 concrete steps.`,
       temperature: 0.4,
       json: true,
-      usageContext: { userId: req.userId, purpose: 'analyzer' },
     })
 
     const parsed = parseJSON(text)

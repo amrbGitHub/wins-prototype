@@ -1,7 +1,10 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useApi } from '../../composables/useApi.js'
-import { ChevronRight, ArrowLeft, AlertTriangle, Trash2, MessageSquare, ShieldCheck, ShieldOff, BarChart3, Eye } from 'lucide-vue-next'
+import {
+  ChevronRight, ArrowLeft, AlertTriangle, Trash2, MessageSquare,
+  ShieldCheck, ShieldOff, Eye, Target, BookText, Layers, Sparkles,
+} from 'lucide-vue-next'
 
 const { apiFetch } = useApi()
 
@@ -14,6 +17,14 @@ const selectedId    = ref(null)
 const detail        = ref(null)
 const detailLoading = ref(false)
 const detailError   = ref('')
+
+// Sub-page navigation inside a user's record. 'dashboard' = the counts grid;
+// clicking a tile opens the section list. Each list shows full timestamps so
+// bursts (e.g. fuzzer activity that all shares one calendar date) stay
+// distinguishable.
+const view = ref('dashboard') // 'dashboard' | 'goals' | 'entries' | 'chats' | 'reflections' | 'programs'
+function openSection(s) { view.value = s }
+function backToDashboard() { view.value = 'dashboard'; expandedChatId.value = null }
 
 const expandedChatId = ref(null)
 function toggleChat(id) {
@@ -37,7 +48,6 @@ async function setRole(nextRole) {
     })
     detail.value.profile = { ...(detail.value.profile || {}), role: nextRole }
     roleMessage.value = res.warning || (nextRole === 'admin' ? 'Promoted to admin.' : 'Demoted to user.')
-    // Refresh list so the admin chip updates.
     loadUsers()
   } catch (e) {
     roleError.value = e.message || 'Role change failed'
@@ -46,31 +56,8 @@ async function setRole(nextRole) {
   }
 }
 
-// ── LLM usage panel ─────────────────────────────────────────────────────────
-const usage = ref(null)
-const usageLoading = ref(false)
-const usageError   = ref('')
-async function loadUsage() {
-  if (!selectedId.value) return
-  usageLoading.value = true
-  usageError.value = ''
-  try {
-    usage.value = await apiFetch(`/api/admin/users/${selectedId.value}/usage`)
-  } catch (e) {
-    usageError.value = e.message || 'Failed to load usage'
-  } finally {
-    usageLoading.value = false
-  }
-}
-function fmtTokens(n) {
-  if (!n) return '0'
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M'
-  if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'k'
-  return String(n)
-}
-
 // ── Audit (pseudonymized side-by-side) ─────────────────────────────────────
-const auditByChatId = ref({})       // { [conversationId]: { loading, error, turns } }
+const auditByChatId = ref({})
 async function loadAuditForChat(conversationId) {
   if (auditByChatId.value[conversationId]?.turns) return
   auditByChatId.value[conversationId] = { loading: true, error: '', turns: null }
@@ -83,7 +70,7 @@ async function loadAuditForChat(conversationId) {
     auditByChatId.value[conversationId] = { loading: false, error: e.message || 'Audit fetch failed', turns: [] }
   }
 }
-const chatViewMode = ref({})  // per-chatId: 'real' | 'sidebyside'
+const chatViewMode = ref({})
 function setChatView(chatId, mode) { chatViewMode.value = { ...chatViewMode.value, [chatId]: mode } }
 
 const deleting   = ref(false)
@@ -146,14 +133,13 @@ async function openUser(u) {
   detail.value = null
   detailError.value = ''
   detailLoading.value = true
-  usage.value = null
+  view.value = 'dashboard'
   auditByChatId.value = {}
   chatViewMode.value = {}
   roleMessage.value = ''
   roleError.value = ''
   try {
     detail.value = await apiFetch(`/api/admin/users/${u.userId}`)
-    loadUsage()  // fetch in parallel; the panel renders independently
   } catch (e) {
     detailError.value = e.message || 'Failed to load user details'
   } finally {
@@ -166,14 +152,45 @@ function back() {
   detail.value = null
   expandedChatId.value = null
   showDeleteUI.value = false
-  usage.value = null
   auditByChatId.value = {}
+  view.value = 'dashboard'
 }
 
+// Date-only — used for fields stored as `date` (YYYY-MM-DD, e.g. entries' day,
+// reflections' month). Time is meaningless for these.
 function fmtDate(iso) {
   if (!iso) return ''
   try { return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) }
   catch { return iso }
+}
+// Date + time — used for every `created_at` / `updated_at` timestamp shown to
+// the admin. A single calendar date can contain hundreds of rows (any fuzzer
+// burst will demonstrate that), so admins need second-precision to tell rows
+// apart and reconstruct a timeline.
+function fmtDateTime(iso) {
+  if (!iso) return ''
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    })
+  } catch { return iso }
+}
+
+const counts = computed(() => ({
+  goals:         detail.value?.goals?.length         || 0,
+  entries:       detail.value?.entries?.length       || 0,
+  conversations: detail.value?.conversations?.length || 0,
+  reflections:   detail.value?.reflections?.length   || 0,
+  programs:      detail.value?.programs?.length      || 0,
+}))
+
+const sectionTitles = {
+  goals:       'Goals',
+  entries:     'Journal entries',
+  chats:       'LC chats',
+  reflections: 'Reflections',
+  programs:    'Programs',
 }
 
 onMounted(loadUsers)
@@ -181,7 +198,7 @@ onMounted(loadUsers)
 
 <template>
   <section>
-    <!-- ── List ─────────────────────────────────────────────────────────── -->
+    <!-- ── User list ───────────────────────────────────────────────────── -->
     <div v-if="!selectedId" class="rounded-2xl bg-white border border-slate-200 shadow-sm">
       <div class="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
         <h2 class="text-base font-bold text-slate-800 flex-1">All users</h2>
@@ -231,15 +248,21 @@ onMounted(loadUsers)
       </ul>
     </div>
 
-    <!-- ── Detail ───────────────────────────────────────────────────────── -->
+    <!-- ── User detail (dashboard + sub-pages) ─────────────────────────── -->
     <div v-else class="rounded-2xl bg-white border border-slate-200 shadow-sm">
       <div class="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
-        <button @click="back" class="flex items-center gap-1 text-sm text-slate-600 hover:text-slate-900">
-          <ArrowLeft class="h-4 w-4" />
-          Back
+        <button v-if="view !== 'dashboard'" @click="backToDashboard"
+                class="flex items-center gap-1 text-sm text-slate-600 hover:text-slate-900">
+          <ArrowLeft class="h-4 w-4" /> Dashboard
         </button>
-        <h2 class="text-base font-bold text-slate-800 flex-1 text-center">User detail</h2>
-        <div class="w-12" />
+        <button v-else @click="back"
+                class="flex items-center gap-1 text-sm text-slate-600 hover:text-slate-900">
+          <ArrowLeft class="h-4 w-4" /> All users
+        </button>
+        <h2 class="text-base font-bold text-slate-800 flex-1 text-center">
+          {{ view === 'dashboard' ? 'User detail' : sectionTitles[view] }}
+        </h2>
+        <div class="w-20" />
       </div>
 
       <div v-if="detailLoading" class="px-5 py-6 text-sm text-slate-500">Loading…</div>
@@ -248,8 +271,9 @@ onMounted(loadUsers)
         <span>{{ detailError }}</span>
       </div>
 
-      <div v-else-if="detail" class="px-5 py-5 space-y-6">
-        <!-- Profile + role controls -->
+      <!-- ── Dashboard view ──────────────────────────────────────────── -->
+      <div v-else-if="detail && view === 'dashboard'" class="px-5 py-5 space-y-6">
+        <!-- Profile + role -->
         <div>
           <p class="text-sm font-semibold text-slate-800 mb-1">
             {{ detail.profile?.firstName
@@ -258,7 +282,7 @@ onMounted(loadUsers)
           </p>
           <p class="text-xs text-slate-500">{{ detail.email }}</p>
           <p class="text-xs text-slate-500 mt-1">
-            Joined {{ fmtDate(detail.createdAt) }} · Role: <span class="font-semibold text-slate-700">{{ detail.profile?.role || 'user' }}</span>
+            Joined {{ fmtDateTime(detail.createdAt) }} · Role: <span class="font-semibold text-slate-700">{{ detail.profile?.role || 'user' }}</span>
           </p>
           <div class="mt-3 flex flex-wrap items-center gap-2">
             <button
@@ -284,188 +308,46 @@ onMounted(loadUsers)
           </div>
         </div>
 
-        <!-- LLM usage (last 30 days) -->
+        <!-- Activity tiles -->
         <section>
-          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 flex items-center gap-1.5">
-            <BarChart3 class="h-3.5 w-3.5" /> LLM usage (last 30 days)
-          </h3>
-          <div v-if="usageLoading" class="text-xs text-slate-400">Loading usage…</div>
-          <div v-else-if="usageError" class="text-xs text-rose-600">{{ usageError }}</div>
-          <div v-else-if="usage" class="rounded-xl bg-slate-50 px-3 py-3 text-sm space-y-3">
-            <div class="grid grid-cols-3 gap-3">
-              <div>
-                <p class="text-[10px] uppercase tracking-wider text-slate-500">Calls</p>
-                <p class="text-lg font-bold text-slate-800">{{ usage.totals.calls }}</p>
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Activity</h3>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <button @click="openSection('goals')"
+                    class="text-left rounded-xl border border-slate-200 hover:border-teal-400 hover:shadow-sm bg-white p-3 transition">
+              <div class="flex items-center gap-2 text-slate-500 text-xs">
+                <Target class="h-3.5 w-3.5" /> Goals
               </div>
-              <div>
-                <p class="text-[10px] uppercase tracking-wider text-slate-500">Input</p>
-                <p class="text-lg font-bold text-slate-800">{{ fmtTokens(usage.totals.input) }}</p>
+              <p class="text-2xl font-bold text-slate-800 mt-1">{{ counts.goals }}</p>
+            </button>
+            <button @click="openSection('entries')"
+                    class="text-left rounded-xl border border-slate-200 hover:border-teal-400 hover:shadow-sm bg-white p-3 transition">
+              <div class="flex items-center gap-2 text-slate-500 text-xs">
+                <BookText class="h-3.5 w-3.5" /> Journal entries
               </div>
-              <div>
-                <p class="text-[10px] uppercase tracking-wider text-slate-500">Output</p>
-                <p class="text-lg font-bold text-slate-800">{{ fmtTokens(usage.totals.output) }}</p>
+              <p class="text-2xl font-bold text-slate-800 mt-1">{{ counts.entries }}</p>
+            </button>
+            <button @click="openSection('chats')"
+                    class="text-left rounded-xl border border-slate-200 hover:border-teal-400 hover:shadow-sm bg-white p-3 transition">
+              <div class="flex items-center gap-2 text-slate-500 text-xs">
+                <MessageSquare class="h-3.5 w-3.5" /> LC chats
               </div>
-            </div>
-            <div class="border-t border-slate-200 pt-2">
-              <p class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">By purpose</p>
-              <div class="space-y-1">
-                <div v-for="(v, k) in usage.byPurpose" :key="k" class="flex items-center justify-between text-xs">
-                  <span class="font-medium text-slate-700 capitalize">{{ k }}</span>
-                  <span class="text-slate-500">{{ v.calls }} calls · {{ fmtTokens(v.input) }} in · {{ fmtTokens(v.output) }} out</span>
-                </div>
+              <p class="text-2xl font-bold text-slate-800 mt-1">{{ counts.conversations }}</p>
+            </button>
+            <button @click="openSection('reflections')"
+                    class="text-left rounded-xl border border-slate-200 hover:border-teal-400 hover:shadow-sm bg-white p-3 transition">
+              <div class="flex items-center gap-2 text-slate-500 text-xs">
+                <Sparkles class="h-3.5 w-3.5" /> Reflections
               </div>
-            </div>
-            <div v-if="usage.byModel?.length" class="border-t border-slate-200 pt-2">
-              <p class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">By model</p>
-              <div class="space-y-1">
-                <div v-for="m in usage.byModel" :key="m.provider + m.model" class="flex items-center justify-between text-xs">
-                  <span class="font-mono text-slate-700">{{ m.provider }}/{{ m.model }}</span>
-                  <span class="text-slate-500">{{ fmtTokens(m.input + m.output) }} tok</span>
-                </div>
+              <p class="text-2xl font-bold text-slate-800 mt-1">{{ counts.reflections }}</p>
+            </button>
+            <button @click="openSection('programs')"
+                    class="text-left rounded-xl border border-slate-200 hover:border-teal-400 hover:shadow-sm bg-white p-3 transition">
+              <div class="flex items-center gap-2 text-slate-500 text-xs">
+                <Layers class="h-3.5 w-3.5" /> Programs
               </div>
-            </div>
+              <p class="text-2xl font-bold text-slate-800 mt-1">{{ counts.programs }}</p>
+            </button>
           </div>
-          <p v-else class="text-xs text-slate-400">No usage data yet.</p>
-        </section>
-
-        <!-- Goals -->
-        <section>
-          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Goals ({{ detail.goals?.length || 0 }})</h3>
-          <ul v-if="detail.goals?.length" class="space-y-2">
-            <li v-for="g in detail.goals" :key="g.id" class="rounded-xl bg-slate-50 px-3 py-2 text-sm">
-              <p class="font-semibold text-slate-800">{{ g.title }}</p>
-              <p class="text-xs text-slate-500">{{ g.status }} · {{ g.progress ?? 0 }}% · {{ g.month }}</p>
-            </li>
-          </ul>
-          <p v-else class="text-xs text-slate-400">No goals.</p>
-        </section>
-
-        <!-- Programs -->
-        <section>
-          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Programs ({{ detail.programs?.length || 0 }})</h3>
-          <ul v-if="detail.programs?.length" class="space-y-2">
-            <li v-for="p in detail.programs" :key="p.id" class="rounded-xl bg-slate-50 px-3 py-2 text-sm">
-              <p class="font-semibold text-slate-800">{{ p.name }}</p>
-              <p class="text-xs text-slate-500">{{ p.status }}</p>
-            </li>
-          </ul>
-          <p v-else class="text-xs text-slate-400">No programs.</p>
-        </section>
-
-        <!-- Entries -->
-        <section>
-          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Journal entries ({{ detail.entries?.length || 0 }})</h3>
-          <ul v-if="detail.entries?.length" class="space-y-2">
-            <li v-for="e in detail.entries" :key="e.id" class="rounded-xl bg-slate-50 px-3 py-2 text-sm">
-              <p class="text-xs text-slate-500 mb-1">{{ fmtDate(e.date) }} · {{ e.type }}</p>
-              <p class="text-slate-800 line-clamp-3">{{ e.text }}</p>
-              <p v-if="e.wins?.length" class="text-xs mt-1 text-emerald-600">{{ e.wins.length }} win{{ e.wins.length === 1 ? '' : 's' }} extracted</p>
-            </li>
-          </ul>
-          <p v-else class="text-xs text-slate-400">No entries.</p>
-        </section>
-
-        <!-- Reflections -->
-        <section>
-          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Reflections ({{ detail.reflections?.length || 0 }})</h3>
-          <ul v-if="detail.reflections?.length" class="space-y-2">
-            <li v-for="r in detail.reflections" :key="r.id" class="rounded-xl bg-slate-50 px-3 py-2 text-sm">
-              <p class="text-xs text-slate-500 mb-1">{{ r.month }}</p>
-              <p class="text-slate-800 line-clamp-4">{{ r.evaluation }}</p>
-            </li>
-          </ul>
-          <p v-else class="text-xs text-slate-400">No reflections.</p>
-        </section>
-
-        <!-- LC chats -->
-        <section>
-          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">LC chats ({{ detail.conversations?.length || 0 }})</h3>
-          <ul v-if="detail.conversations?.length" class="space-y-2">
-            <li v-for="c in detail.conversations" :key="c.id" class="rounded-xl bg-slate-50">
-              <button
-                @click="toggleChat(c.id)"
-                class="w-full px-3 py-2 flex items-center gap-3 text-left hover:bg-slate-100 rounded-xl transition-colors"
-              >
-                <MessageSquare class="h-4 w-4 text-slate-400 shrink-0" />
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm font-semibold text-slate-800 truncate">{{ c.title }}</p>
-                  <p class="text-xs text-slate-500">{{ c.messageCount }} message{{ c.messageCount === 1 ? '' : 's' }} · {{ fmtDate(c.updatedAt) }}</p>
-                </div>
-                <ChevronRight class="h-4 w-4 text-slate-400 transition-transform" :class="{ 'rotate-90': expandedChatId === c.id }" />
-              </button>
-              <div v-if="expandedChatId === c.id" class="px-3 pb-3 space-y-2">
-                <!-- View toggle -->
-                <div class="flex items-center gap-1.5 pt-1 pb-2 border-b border-slate-200">
-                  <button
-                    @click="setChatView(c.id, 'real')"
-                    class="px-2 py-1 rounded-md text-[11px] font-semibold transition-colors"
-                    :class="(chatViewMode[c.id] || 'real') === 'real' ? 'bg-slate-200 text-slate-800' : 'text-slate-500 hover:text-slate-700'"
-                  >Real text</button>
-                  <button
-                    @click="setChatView(c.id, 'sidebyside'); loadAuditForChat(c.id)"
-                    class="px-2 py-1 rounded-md text-[11px] font-semibold transition-colors flex items-center gap-1"
-                    :class="chatViewMode[c.id] === 'sidebyside' ? 'bg-slate-200 text-slate-800' : 'text-slate-500 hover:text-slate-700'"
-                  >
-                    <Eye class="h-3 w-3" /> Side-by-side (pseudonymized)
-                  </button>
-                </div>
-
-                <!-- Real-text view (unchanged) -->
-                <template v-if="(chatViewMode[c.id] || 'real') === 'real'">
-                  <div v-if="!c.messages?.length" class="text-xs text-slate-400 italic">Empty chat.</div>
-                  <div
-                    v-for="(m, idx) in c.messages"
-                    :key="idx"
-                    class="rounded-lg px-3 py-2 text-sm"
-                    :class="m.role === 'user' ? 'bg-white border border-slate-200' : 'bg-teal-50 border border-teal-100'"
-                  >
-                    <p class="text-[10px] font-bold uppercase tracking-wider mb-1"
-                       :class="m.role === 'user' ? 'text-slate-500' : 'text-teal-600'">
-                      {{ m.role === 'user' ? 'User' : 'LC' }}
-                    </p>
-                    <p class="text-slate-800 whitespace-pre-wrap">{{ m.content }}</p>
-                  </div>
-                </template>
-
-                <!-- Side-by-side audit view -->
-                <template v-else>
-                  <div v-if="auditByChatId[c.id]?.loading" class="text-xs text-slate-400">Loading audit…</div>
-                  <div v-else-if="auditByChatId[c.id]?.error" class="text-xs text-rose-600">{{ auditByChatId[c.id].error }}</div>
-                  <div v-else-if="!auditByChatId[c.id]?.turns?.length" class="text-xs text-slate-400 italic">
-                    No audit records for this chat (predates audit capture, or never sent through gateway).
-                  </div>
-                  <div v-else class="space-y-3">
-                    <p class="text-[11px] text-slate-500 italic">
-                      Left: what the user/LC saw. Right: what was sent to the LLM provider.
-                      Pseudonyms (Person_XXXX, Org_XXXX, Loc_XXXX) are stable per-user identifiers.
-                    </p>
-                    <div v-for="t in auditByChatId[c.id].turns" :key="t.turn_index" class="space-y-1.5">
-                      <div class="text-[10px] uppercase tracking-wider text-slate-400">Turn {{ t.turn_index }} — {{ fmtDate(t.created_at) }}</div>
-                      <div class="grid grid-cols-2 gap-2">
-                        <div class="rounded-lg bg-white border border-slate-200 px-2.5 py-2">
-                          <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">User (real)</p>
-                          <p class="text-xs text-slate-800 whitespace-pre-wrap">{{ t.real_user_text }}</p>
-                        </div>
-                        <div class="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-2">
-                          <p class="text-[10px] font-bold uppercase tracking-wider text-amber-700 mb-1">User → LLM (pseudonymized)</p>
-                          <p class="text-xs text-slate-800 whitespace-pre-wrap font-mono">{{ t.pseudo_user_text }}</p>
-                        </div>
-                        <div class="rounded-lg bg-teal-50 border border-teal-100 px-2.5 py-2">
-                          <p class="text-[10px] font-bold uppercase tracking-wider text-teal-600 mb-1">LC (real)</p>
-                          <p class="text-xs text-slate-800 whitespace-pre-wrap">{{ t.real_assistant_text }}</p>
-                        </div>
-                        <div class="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-2">
-                          <p class="text-[10px] font-bold uppercase tracking-wider text-amber-700 mb-1">LC → LLM (pseudonymized)</p>
-                          <p class="text-xs text-slate-800 whitespace-pre-wrap font-mono">{{ t.pseudo_assistant_text }}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </template>
-              </div>
-            </li>
-          </ul>
-          <p v-else class="text-xs text-slate-400">No chats.</p>
         </section>
 
         <!-- Danger zone -->
@@ -518,6 +400,156 @@ onMounted(loadUsers)
             </div>
           </div>
         </section>
+      </div>
+
+      <!-- ── Goals sub-page ──────────────────────────────────────────── -->
+      <div v-else-if="detail && view === 'goals'" class="px-5 py-5">
+        <p v-if="!detail.goals?.length" class="text-xs text-slate-400">No goals.</p>
+        <ul v-else class="space-y-2">
+          <li v-for="g in detail.goals" :key="g.id" class="rounded-xl bg-slate-50 px-3 py-2 text-sm">
+            <p class="font-semibold text-slate-800">{{ g.title }}</p>
+            <p v-if="g.description" class="text-xs text-slate-600 mt-0.5 line-clamp-2">{{ g.description }}</p>
+            <p class="text-xs text-slate-500 mt-1">
+              {{ g.status }} · {{ g.progress ?? 0 }}% · {{ g.month }}
+              · created {{ fmtDateTime(g.createdAt) }}
+            </p>
+          </li>
+        </ul>
+      </div>
+
+      <!-- ── Entries sub-page ────────────────────────────────────────── -->
+      <div v-else-if="detail && view === 'entries'" class="px-5 py-5">
+        <p v-if="!detail.entries?.length" class="text-xs text-slate-400">No entries.</p>
+        <ul v-else class="space-y-2">
+          <li v-for="e in detail.entries" :key="e.id" class="rounded-xl bg-slate-50 px-3 py-2 text-sm">
+            <p class="text-xs text-slate-500 mb-1">
+              {{ fmtDateTime(e.createdAt) }} · day: {{ fmtDate(e.date) }} · {{ e.type }}
+            </p>
+            <p class="text-slate-800 whitespace-pre-wrap">{{ e.text }}</p>
+            <p v-if="e.wins?.length" class="text-xs mt-1 text-emerald-600">{{ e.wins.length }} win{{ e.wins.length === 1 ? '' : 's' }} extracted</p>
+          </li>
+        </ul>
+      </div>
+
+      <!-- ── Chats sub-page (with side-by-side audit toggle, unchanged) -->
+      <div v-else-if="detail && view === 'chats'" class="px-5 py-5">
+        <p v-if="!detail.conversations?.length" class="text-xs text-slate-400">No chats.</p>
+        <ul v-else class="space-y-2">
+          <li v-for="c in detail.conversations" :key="c.id" class="rounded-xl bg-slate-50">
+            <button
+              @click="toggleChat(c.id)"
+              class="w-full px-3 py-2 flex items-center gap-3 text-left hover:bg-slate-100 rounded-xl transition-colors"
+            >
+              <MessageSquare class="h-4 w-4 text-slate-400 shrink-0" />
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-semibold text-slate-800 truncate">{{ c.title }}</p>
+                <p class="text-xs text-slate-500">
+                  {{ c.messageCount }} message{{ c.messageCount === 1 ? '' : 's' }}
+                  · created {{ fmtDateTime(c.createdAt) }}
+                  · updated {{ fmtDateTime(c.updatedAt) }}
+                </p>
+              </div>
+              <ChevronRight class="h-4 w-4 text-slate-400 transition-transform" :class="{ 'rotate-90': expandedChatId === c.id }" />
+            </button>
+            <div v-if="expandedChatId === c.id" class="px-3 pb-3 space-y-2">
+              <div class="flex items-center gap-1.5 pt-1 pb-2 border-b border-slate-200">
+                <button
+                  @click="setChatView(c.id, 'real')"
+                  class="px-2 py-1 rounded-md text-[11px] font-semibold transition-colors"
+                  :class="(chatViewMode[c.id] || 'real') === 'real' ? 'bg-slate-200 text-slate-800' : 'text-slate-500 hover:text-slate-700'"
+                >Real text</button>
+                <button
+                  @click="setChatView(c.id, 'sidebyside'); loadAuditForChat(c.id)"
+                  class="px-2 py-1 rounded-md text-[11px] font-semibold transition-colors flex items-center gap-1"
+                  :class="chatViewMode[c.id] === 'sidebyside' ? 'bg-slate-200 text-slate-800' : 'text-slate-500 hover:text-slate-700'"
+                >
+                  <Eye class="h-3 w-3" /> Side-by-side (pseudonymized)
+                </button>
+              </div>
+
+              <template v-if="(chatViewMode[c.id] || 'real') === 'real'">
+                <div v-if="!c.messages?.length" class="text-xs text-slate-400 italic">Empty chat.</div>
+                <div
+                  v-for="(m, idx) in c.messages"
+                  :key="idx"
+                  class="rounded-lg px-3 py-2 text-sm"
+                  :class="m.role === 'user' ? 'bg-white border border-slate-200' : 'bg-teal-50 border border-teal-100'"
+                >
+                  <p class="text-[10px] font-bold uppercase tracking-wider mb-1"
+                     :class="m.role === 'user' ? 'text-slate-500' : 'text-teal-600'">
+                    {{ m.role === 'user' ? 'User' : 'LC' }}
+                  </p>
+                  <p class="text-slate-800 whitespace-pre-wrap">{{ m.content }}</p>
+                </div>
+              </template>
+
+              <template v-else>
+                <div v-if="auditByChatId[c.id]?.loading" class="text-xs text-slate-400">Loading audit…</div>
+                <div v-else-if="auditByChatId[c.id]?.error" class="text-xs text-rose-600">{{ auditByChatId[c.id].error }}</div>
+                <div v-else-if="!auditByChatId[c.id]?.turns?.length" class="text-xs text-slate-400 italic">
+                  No audit records for this chat (predates audit capture, or never sent through gateway).
+                </div>
+                <div v-else class="space-y-3">
+                  <p class="text-[11px] text-slate-500 italic">
+                    Left: what the user/LC saw. Right: what was sent to the LLM provider.
+                    Pseudonyms (Person_XXXX, Org_XXXX, Loc_XXXX) are stable per-user identifiers.
+                  </p>
+                  <div v-for="t in auditByChatId[c.id].turns" :key="t.turn_index" class="space-y-1.5">
+                    <div class="text-[10px] uppercase tracking-wider text-slate-400">Turn {{ t.turn_index }} — {{ fmtDateTime(t.created_at) }}</div>
+                    <div class="grid grid-cols-2 gap-2">
+                      <div class="rounded-lg bg-white border border-slate-200 px-2.5 py-2">
+                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">User (real)</p>
+                        <p class="text-xs text-slate-800 whitespace-pre-wrap">{{ t.real_user_text }}</p>
+                      </div>
+                      <div class="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-2">
+                        <p class="text-[10px] font-bold uppercase tracking-wider text-amber-700 mb-1">User → LLM (pseudonymized)</p>
+                        <p class="text-xs text-slate-800 whitespace-pre-wrap font-mono">{{ t.pseudo_user_text }}</p>
+                      </div>
+                      <div class="rounded-lg bg-teal-50 border border-teal-100 px-2.5 py-2">
+                        <p class="text-[10px] font-bold uppercase tracking-wider text-teal-600 mb-1">LC (real)</p>
+                        <p class="text-xs text-slate-800 whitespace-pre-wrap">{{ t.real_assistant_text }}</p>
+                      </div>
+                      <div class="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-2">
+                        <p class="text-[10px] font-bold uppercase tracking-wider text-amber-700 mb-1">LC → LLM (pseudonymized)</p>
+                        <p class="text-xs text-slate-800 whitespace-pre-wrap font-mono">{{ t.pseudo_assistant_text }}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <!-- ── Reflections sub-page ────────────────────────────────────── -->
+      <div v-else-if="detail && view === 'reflections'" class="px-5 py-5">
+        <p v-if="!detail.reflections?.length" class="text-xs text-slate-400">No reflections.</p>
+        <ul v-else class="space-y-2">
+          <li v-for="r in detail.reflections" :key="r.id" class="rounded-xl bg-slate-50 px-3 py-2 text-sm">
+            <p class="text-xs text-slate-500 mb-1">
+              month: {{ r.month }} · generated {{ fmtDateTime(r.createdAt) }}
+            </p>
+            <p class="text-slate-800 whitespace-pre-wrap">{{ r.evaluation }}</p>
+            <p v-if="r.suggestions" class="text-xs text-slate-600 mt-1 whitespace-pre-wrap">{{ r.suggestions }}</p>
+          </li>
+        </ul>
+      </div>
+
+      <!-- ── Programs sub-page ───────────────────────────────────────── -->
+      <div v-else-if="detail && view === 'programs'" class="px-5 py-5">
+        <p v-if="!detail.programs?.length" class="text-xs text-slate-400">No programs.</p>
+        <ul v-else class="space-y-2">
+          <li v-for="p in detail.programs" :key="p.id" class="rounded-xl bg-slate-50 px-3 py-2 text-sm">
+            <p class="font-semibold text-slate-800">{{ p.name }}</p>
+            <p v-if="p.description" class="text-xs text-slate-600 mt-0.5 line-clamp-2">{{ p.description }}</p>
+            <p class="text-xs text-slate-500 mt-1">
+              {{ p.status }} · {{ p.learnerCount ?? 0 }} learners
+              · created {{ fmtDateTime(p.createdAt) }}
+              <span v-if="p.updatedAt"> · updated {{ fmtDateTime(p.updatedAt) }}</span>
+            </p>
+          </li>
+        </ul>
       </div>
     </div>
   </section>

@@ -314,13 +314,11 @@ async function handleTurn({ res, userId, conversationId, chatMessages, skipNames
   let finalFrontendTools = []
   const citations = []
 
-  const chatUsageCtx = { userId, conversationId, purpose: 'chat' }
-
   for (let hop = 0; hop <= MAX_TOOL_HOPS; hop++) {
     let turnText = ''
     let turnTools = []
     let turnThinking = []
-    for await (const event of claudeChatStream({ system, messages: workingMessages, tools: LC_TOOLS, usageContext: chatUsageCtx })) {
+    for await (const event of claudeChatStream({ system, messages: workingMessages, tools: LC_TOOLS })) {
       if (event.type === 'text')          turnText += event.text
       else if (event.type === 'tools')    turnTools = event.tools
       else if (event.type === 'thinking') turnThinking = event.blocks
@@ -359,7 +357,7 @@ async function handleTurn({ res, userId, conversationId, chatMessages, skipNames
         { role: 'user',      content: capResultBlocks },
       ]
       let synthText = ''
-      for await (const event of claudeChatStream({ system, messages: workingMessages, usageContext: chatUsageCtx })) {
+      for await (const event of claudeChatStream({ system, messages: workingMessages })) {
         if (event.type === 'text') synthText += event.text
       }
       if (synthText) fullPseudoText = synthText

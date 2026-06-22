@@ -179,18 +179,22 @@ router.get('/users/:userId', async (req, res) => {
       goals: (goalsRes.data || []).map(g => ({
         id: g.id, title: g.title, description: g.description, status: g.status,
         progress: g.progress, month: g.month, targetDate: g.target_date,
+        createdAt: g.created_at,
       })),
       programs: (programsRes.data || []).map(p => ({
         id: p.id, name: p.name, description: p.description, status: p.status,
         startDate: p.start_date, endDate: p.end_date, learnerCount: p.learner_count,
+        createdAt: p.created_at, updatedAt: p.updated_at,
       })),
       entries: (entriesRes.data || []).map(e => ({
         id: e.id, date: e.date, type: e.type, text: e.text,
         wins: e.analysis?.wins || [],
+        createdAt: e.created_at,
       })),
       reflections: (reflectionsRes.data || []).map(r => ({
         id: r.id, month: r.month, evaluation: r.evaluation,
         suggestions: r.suggestions,
+        createdAt: r.created_at,
       })),
       conversations: (convRes.data || []).map(c => ({
         id: c.id,
@@ -299,69 +303,6 @@ router.patch('/users/:userId/role', async (req, res) => {
       : null
 
     res.json({ ok: true, role: nextRole, warning })
-  } catch (err) {
-    console.error('[route-error]', req.method, req.originalUrl, err?.message)
-    res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
-  }
-})
-
-// ── GET /api/admin/users/:userId/usage — LLM token usage (last 30 days) ─────
-// Returns aggregate totals (per purpose) + a 14-day daily breakdown for chart
-// rendering. Cost is left to the UI to compute from per-model rates the admin
-// owns — keeping the backend ignorant of $/token avoids stale price tables.
-router.get('/users/:userId/usage', async (req, res) => {
-  try {
-    const userId = req.params.userId
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-    const { data, error } = await supabase
-      .from('llm_usage')
-      .select('purpose, provider, model, input_tokens, output_tokens, created_at')
-      .eq('user_id', userId)
-      .gte('created_at', thirtyDaysAgo)
-      .order('created_at', { ascending: false })
-      .limit(5000)
-    if (error) throw error
-
-    // Aggregate by purpose
-    const byPurpose = { chat: { input: 0, output: 0, calls: 0 },
-                       summary: { input: 0, output: 0, calls: 0 },
-                       analyzer: { input: 0, output: 0, calls: 0 } }
-    // Aggregate by model
-    const byModel = new Map()
-    // Daily (last 14 days) for sparkline-friendly chart data
-    const days = new Map()
-
-    for (const r of data || []) {
-      const p = byPurpose[r.purpose] || (byPurpose[r.purpose] = { input: 0, output: 0, calls: 0 })
-      p.input  += r.input_tokens  || 0
-      p.output += r.output_tokens || 0
-      p.calls  += 1
-
-      const mk = `${r.provider}/${r.model}`
-      const m = byModel.get(mk) || { provider: r.provider, model: r.model, input: 0, output: 0, calls: 0 }
-      m.input  += r.input_tokens  || 0
-      m.output += r.output_tokens || 0
-      m.calls  += 1
-      byModel.set(mk, m)
-
-      const day = String(r.created_at).slice(0, 10)
-      const d = days.get(day) || { date: day, input: 0, output: 0 }
-      d.input  += r.input_tokens  || 0
-      d.output += r.output_tokens || 0
-      days.set(day, d)
-    }
-
-    res.json({
-      windowDays: 30,
-      totals: {
-        input:  Object.values(byPurpose).reduce((a, p) => a + p.input,  0),
-        output: Object.values(byPurpose).reduce((a, p) => a + p.output, 0),
-        calls:  Object.values(byPurpose).reduce((a, p) => a + p.calls,  0),
-      },
-      byPurpose,
-      byModel: [...byModel.values()].sort((a, b) => (b.input + b.output) - (a.input + a.output)),
-      daily:   [...days.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-14),
-    })
   } catch (err) {
     console.error('[route-error]', req.method, req.originalUrl, err?.message)
     res.status(err.status || 500).json({ error: err.publicMessage || 'Server error.' })
