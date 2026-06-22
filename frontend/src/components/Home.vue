@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useApi } from '../composables/useApi.js'
 import { thisMonthLocal } from '../lib/dates.js'
-import { Sparkles, CalendarDays, Target, Trophy, TrendingUp, ArrowRight, Brain } from 'lucide-vue-next'
+import { Sparkles, Target, Trophy, TrendingUp, ArrowRight, Brain } from 'lucide-vue-next'
 
 const props = defineProps({
   firstName: { type: String, default: '' },
@@ -35,7 +35,6 @@ const steps = [
   {
     id:    'elsie',
     icon:  Sparkles,
-    num:   '1',
     title: 'Chat with LC',
     desc:  'Your Learning Companion. Set goals, log wins, update progress — all through natural conversation.',
     bg:    'linear-gradient(135deg,#0d5f6b,#0e8095)',
@@ -46,7 +45,6 @@ const steps = [
   {
     id:    'goals',
     icon:  Target,
-    num:   '2',
     title: 'Track Goals',
     desc:  'View your monthly goals, update milestones, and watch your progress grow.',
     bg:    'linear-gradient(135deg,#0891b2,#0ea5e9)',
@@ -57,7 +55,6 @@ const steps = [
   {
     id:    'celebrate',
     icon:  Trophy,
-    num:   '3',
     title: 'Celebrate Wins',
     desc:  'Recognise achievements and share celebration messages with your learners and team.',
     bg:    'linear-gradient(135deg,#d97706,#f59e0b)',
@@ -68,7 +65,6 @@ const steps = [
   {
     id:    'reflections',
     icon:  Brain,
-    num:   '4',
     title: 'Monthly Review',
     desc:  'Reflect on what worked, what didn\'t, and carry momentum into the next month.',
     bg:    'linear-gradient(135deg,#e11d48,#f43f5e)',
@@ -171,24 +167,23 @@ const steps = [
         </div>
       </Transition>
 
-      <!-- ── Flowchart ──────────────────────────────────────────────────────── -->
+      <!-- ── Explore (feature tiles) ───────────────────────────────────────────
+           Previously presented as a numbered "Your workflow" stepper with
+           dashed connectors, which read as a required sequence. The app
+           doesn't enforce one — each tile is just an entry point. Tiles
+           dropped the numbering + connector line to remove that implication. -->
       <div>
-        <p class="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-6 px-1">Your workflow</p>
+        <p class="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-6 px-1">Explore</p>
 
-        <!-- DESKTOP: horizontal stepper -->
-        <div class="hidden sm:block relative">
-          <!-- Dashed connector line (sits behind the circles) -->
-          <div class="absolute top-[36px] left-[calc(12.5%+4px)] right-[calc(12.5%+4px)] h-0"
-               style="border-top:2px dashed rgba(0,0,0,0.1);z-index:0"></div>
-
-          <div class="grid grid-cols-4 gap-4 relative z-10">
+        <!-- DESKTOP: feature tile grid -->
+        <div class="hidden sm:block">
+          <div class="grid grid-cols-4 gap-4">
             <button
-              v-for="(step, i) in steps"
+              v-for="step in steps"
               :key="step.id"
               @click="emit('navigate', step.id)"
               class="group flex flex-col items-center text-center gap-3 cursor-pointer"
             >
-              <!-- Icon circle -->
               <div
                 class="h-[72px] w-[72px] rounded-2xl flex items-center justify-center shadow-lg transition-all duration-300 group-hover:scale-110 group-hover:-translate-y-1 bg-white"
                 :style="`box-shadow: 0 4px 16px ${step.glow}, 0 0 0 3px white`"
@@ -201,61 +196,48 @@ const steps = [
                 </div>
               </div>
 
-              <!-- Step number + badge -->
-              <div class="flex items-center gap-1.5">
-                <span class="text-[9px] font-bold tracking-widest text-slate-300 uppercase">STEP {{ step.num }}</span>
+              <div v-if="step.badge" class="flex items-center">
                 <span
-                  v-if="step.badge"
                   class="text-[9px] font-bold rounded-full px-1.5 py-0.5"
                   :class="step.badge.color"
                 >{{ step.badge.text }}</span>
               </div>
 
-              <!-- Title -->
               <p class="font-bold text-slate-800 text-sm leading-tight group-hover:text-teal-700 transition-colors duration-200">
                 {{ step.title }}
               </p>
 
-              <!-- Description -->
               <p class="text-[11px] text-slate-400 leading-relaxed px-1">{{ step.desc }}</p>
             </button>
           </div>
         </div>
 
-        <!-- MOBILE: vertical timeline -->
-        <div class="sm:hidden flex flex-col gap-0 relative">
-          <!-- Vertical dashed line -->
-          <div class="absolute top-9 bottom-9 left-[35px] w-0"
-               style="border-left:2px dashed rgba(0,0,0,0.1)"></div>
-
-          <div
-            v-for="(step, i) in steps"
+        <!-- MOBILE: vertical stack -->
+        <div class="sm:hidden flex flex-col gap-3">
+          <button
+            v-for="step in steps"
             :key="step.id"
-            class="flex items-start gap-4 relative z-10 pb-6 last:pb-0"
+            @click="emit('navigate', step.id)"
+            class="flex items-start gap-4 text-left rounded-2xl bg-white border border-slate-100 shadow-sm px-4 py-3 active:scale-[0.99] transition"
           >
-            <!-- Icon -->
-            <button
-              @click="emit('navigate', step.id)"
-              class="shrink-0 h-[72px] w-[72px] rounded-2xl flex items-center justify-center shadow-md transition-all duration-200 hover:scale-105 hover:-translate-y-0.5 focus:outline-none"
-              :style="`background:${step.bg};box-shadow:0 4px 16px ${step.ring}`"
+            <div
+              class="shrink-0 h-[56px] w-[56px] rounded-xl flex items-center justify-center"
+              :style="`background:${step.bg};box-shadow:0 4px 12px ${step.ring}`"
             >
-              <component :is="step.icon" class="h-8 w-8 text-white" />
-            </button>
-
-            <!-- Content -->
-            <div class="flex-1 pt-1.5">
+              <component :is="step.icon" class="h-7 w-7 text-white" />
+            </div>
+            <div class="flex-1 pt-0.5">
               <div class="flex items-center gap-2 mb-0.5">
-                <span class="text-[9px] font-bold tracking-widest text-slate-300 uppercase">STEP {{ step.num }}</span>
+                <p class="font-bold text-slate-800 text-sm">{{ step.title }}</p>
                 <span
                   v-if="step.badge"
                   class="text-[9px] font-bold rounded-full px-1.5 py-0.5"
                   :class="step.badge.color"
                 >{{ step.badge.text }}</span>
               </div>
-              <p class="font-bold text-slate-800 text-sm">{{ step.title }}</p>
-              <p class="text-[11px] text-slate-400 leading-relaxed mt-1">{{ step.desc }}</p>
+              <p class="text-[11px] text-slate-400 leading-relaxed">{{ step.desc }}</p>
             </div>
-          </div>
+          </button>
         </div>
       </div>
 

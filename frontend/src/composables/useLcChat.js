@@ -382,6 +382,41 @@ export function useLcChat({ getFirstName, getConversationId, onGoalsUpdated, onN
       } catch { /* recorded on action */ }
     }
     if (goalsChanged) onGoalsUpdated?.()
+    ensurePostActionNavigate(msg)
+  }
+
+  // Append a navigate action to the message so the user has a one-click jump
+  // to where the result lives. Only when the model didn't already include one
+  // and at least one non-navigate action succeeded. Keeps the user in the
+  // conversation (no surprise route changes) while still making the effect
+  // visible.
+  function destinationFor(type) {
+    if (type === 'create_goal' || type === 'update_goal' || type === 'delete_goal') {
+      return { view: 'goals',     label: 'View goals' }
+    }
+    if (type === 'log_win')        return { view: 'celebrate', label: 'View wins' }
+    if (type === 'create_program') return { view: 'programs',  label: 'View programs' }
+    return null
+  }
+  function ensurePostActionNavigate(msg) {
+    if (!msg?.actions?.length) return
+    if (msg.actions.some(a => a.type === 'navigate')) return
+    const successful = msg.actions.filter(a => a._state === 'done' && a.type !== 'navigate')
+    if (!successful.length) return
+    // Priority: programs > goals (create/update/delete) > wins.
+    const priority = ['create_program', 'create_goal', 'update_goal', 'delete_goal', 'log_win']
+    const pick = priority.map(t => successful.find(a => a.type === t)).find(Boolean) || successful[0]
+    const dest = destinationFor(pick.type)
+    if (!dest) return
+    msg.actions.push({
+      type:    'navigate',
+      view:    dest.view,
+      label:   dest.label,
+      _id:     newId('a'),
+      _state:  'idle',
+      _result: null,
+      _error:  null,
+    })
   }
 
   async function executeAction(msgIdx, actionIdx) {

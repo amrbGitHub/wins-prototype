@@ -64,6 +64,15 @@ const avgLevel = computed(() => {
   const arr = ttsLevels.value || []
   return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
 })
+// Secondary control label — explicit per state so it can't be confused with
+// the orb's affirmative action. See Elsie.vue for the matching design note.
+const cancelLabel = computed(() => {
+  if (convoStatus.value === 'listening')  return { text: 'Discard', aria: "Discard what you've said without sending" }
+  if (convoStatus.value === 'processing') return { text: 'Cancel',  aria: 'Cancel the current request' }
+  if (convoStatus.value === 'speaking')   return { text: 'End',     aria: 'Stop LC and end this turn' }
+  return { text: 'Cancel', aria: 'Cancel' }
+})
+
 // Only Whisper (STT) has a loadable model now — ElevenLabs is server-side
 // and the browser TTS fallback is instant.
 const voiceModelLoading  = computed(() => sttLoading.value)
@@ -477,7 +486,7 @@ function relTime(ts) {
           </div>
 
           <button v-else @click="toggleConvoMic" :disabled="convoStatus === 'processing'"
-            :aria-label="convoStatus === 'listening' ? 'Stop listening' : (convoStatus === 'speaking' ? 'Interrupt and speak' : 'Tap to speak')"
+            :aria-label="convoStatus === 'listening' ? 'Tap to send' : (convoStatus === 'speaking' ? 'Interrupt LC and speak' : 'Tap to speak')"
             class="lc-orb relative h-40 w-40 rounded-full transition-transform duration-200 focus:outline-none hover:scale-105 active:scale-95 disabled:cursor-default disabled:hover:scale-100"
             :class="{
               'lc-orb--listening':  convoStatus === 'listening',
@@ -522,21 +531,25 @@ function relTime(ts) {
               {{ convoTranscript }}
             </p>
             <p v-else-if="convoStatus === 'idle' && lastAiMsg" class="text-xs text-slate-400 text-center">
-              Tap to start speaking
+              Tap the orb to speak
+            </p>
+            <p v-else-if="convoStatus === 'listening'" class="text-xs text-slate-400 text-center">
+              Tap the orb again to send
             </p>
           </div>
 
-          <!-- Hard-cancel button — visible whenever voice is doing something.
-               One-click escape hatch: aborts STT, kills any in-flight LLM
-               request, stops TTS, returns straight to idle. -->
+          <!-- Secondary escape hatch — distinct from the orb. Orb-tap finishes
+               the current state cleanly (listening → send, speaking → interrupt
+               and start listening). This button discards/aborts instead.
+               Label varies by state so the difference is unambiguous. -->
           <button
             v-if="convoStatus !== 'idle'"
             @click="cancelVoiceTurn"
             class="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm hover:bg-slate-50 hover:border-slate-400 transition"
-            aria-label="Cancel current voice turn"
+            :aria-label="cancelLabel.aria"
           >
             <X class="h-4 w-4" aria-hidden="true" />
-            Stop
+            {{ cancelLabel.text }}
           </button>
 
           <div v-if="lastActions.length && convoStatus !== 'listening'" class="w-full flex flex-col gap-2">
